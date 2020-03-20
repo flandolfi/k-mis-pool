@@ -13,12 +13,20 @@ class Ordering:
 
 class Random(Ordering):
     def __call__(self, data: Data):
+        if 'adj' in data:
+            return torch.randperm(data.adj.size(1)).view((1, -1))
+
         return torch.randperm(data.num_nodes)
 
 
 class Canonical(Ordering):
     def __call__(self, data: Data):
-        return torch.arange(data.num_nodes)[::(-1)**int(self.descending)]
+        if 'adj' in data:
+            out = torch.arange(data.adj.size(1)).view((1, -1))
+        else:
+            out = torch.arange(data.num_nodes)
+
+        return out * (-1)**int(self.descending)
 
 
 class InverseCanonical(Canonical):
@@ -32,14 +40,20 @@ class KHopDegree(Ordering):
         self.k = k
 
     def __call__(self, data: Data):
-        out = torch.ones([data.num_nodes, 1], dtype=torch.float)
-        ind, val, n = data.edge_index, data.edge_attr, data.num_nodes
+        if 'adj' in data:
+            size = data.adj.size()
+            size[-1] = 1
+            out = torch.ones(size, dtype=torch.float)
+            out = torch.matrix_power(data.adj, self.k).mm(out)
+        else:
+            out = torch.ones([data.num_nodes, 1], dtype=torch.float)
+            ind, val, n = data.edge_index, data.edge_attr, data.num_nodes
 
-        if val is None:
-            val = torch.ones_like(ind[0], dtype=torch.float)
+            if val is None:
+                val = torch.ones_like(ind[0], dtype=torch.float)
 
-        for _ in range(self.k):
-            out = torch_sparse.spmm(ind, val, n, out)
+            for _ in range(self.k):
+                out = torch_sparse.spmm(ind, val, n, n, out)
 
         return out * (-1)**int(self.descending)
 

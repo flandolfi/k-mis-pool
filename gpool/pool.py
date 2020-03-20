@@ -1,23 +1,24 @@
 import torch
-import torch_geometric as pyg
 from torch_geometric.nn.conv import MessagePassing
+from torch_geometric.data import Batch
 from gpool import orderings, utils
 
 
 class SparsePool(MessagePassing):
-    def __init__(self, pool_size=1, stride=None, ordering='random', *args, **kwargs):
-        self.pool_size = pool_size
-        self.stride = stride if stride else pool_size + 1
+    def __init__(self, kernel_size=1, stride=None, ordering='random', *args, **kwargs):
+        self.kernel_size = kernel_size
+        self.stride = stride if stride else kernel_size + 1
 
         if isinstance(ordering, str):
-            ordering = getattr(orderings, ordering.title().replace('-', ''))()
+            opts = {'k': self.stride} if ordering.endswith('k-hop-degree') else {}
+            ordering = getattr(orderings, ordering.title().replace('-', ''))(**opts)
 
         self.ordering = ordering
 
         super(SparsePool, self).__init__(*args, **kwargs)
 
-    def select(self, data: pyg.data.Data):
-        selected = torch.zeros(data.num_nodes, dtype=torch.uint8)
+    def select(self, data: Batch):
+        selected = torch.zeros(data.num_nodes, dtype=torch.bool)
         available = torch.ones_like(selected)
         frontier = available.clone()
         neighbors = selected.clone()
@@ -59,16 +60,28 @@ class SparsePool(MessagePassing):
 
         return selected
 
-    def aggregate(self, data: pyg.data.Batch, mask: torch.ByteTensor):
-        pass
+    def forward(self, data: Batch):
+        mask = self.select(data)
+        labels = torch.empty(data.num_nodes, dtype=torch.long)
+        labels[mask] = torch.arange(mask.sum().item(), dtype=torch.long)
+        out = data.clone()
 
+        if out.edge_attr is None:
+            out.edge_attr = torch.ones_like(out.edge_index[0], dtype=torch.float)
 
+        for _ in range(self.kernel_size):
+            out.x = self.propagate(edge_index=out.edge_index, edge_attr=out.edge_attr, x=out.x)
 
+        indices, values = utils.k_hop(out.edge_index, out.edge_attr,
+                                      self.stride, out.num_nodes, mask)
+        out.edge_index, out.edge_attr, out.num_nodes = labels[indices], values, mask.sum().item()
 
+        for key, val in data:
+            if torch.is_tensor(val) and val.size(0) == data.num_nodes:
+                out['key'] = val[mask]
 
+        return out
 
-
-
-
-
+    def message(self, x_j, edge_attr):
+        return x_j * edge_attr.view((-1, 1))
 
