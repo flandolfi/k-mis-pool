@@ -1,24 +1,17 @@
 from setuptools import setup, find_packages
-import torch
-from torch.utils.cpp_extension import CppExtension, BuildExtension
-
-extra_compile_args = []
-# extra_compile_args = ['-g', '-O0', '-DDEBUG']
-
-cmdclass = {'build_ext': BuildExtension}
-ext_modules = [
-    CppExtension('gpool.select_cpu', 
-                 ['cpu/select.cpp'], 
-                 extra_compile_args=extra_compile_args),
-]
 
 __version__ = '0.0.1'
 url = 'https://github.com/flandolfi/graph-pooling'
 
 install_requires = [
     'numpy',
-    'torch', 
-    'torch_geometric'
+    'torch',
+    'torch_sparse',
+    'torch_geometric',
+    'skorch',
+    'scikit-learn',
+    'pandas',
+    'tqdm'
 ]
 setup_requires = ['pytest-runner']
 tests_require = ['pytest', 'pytest-cov']
@@ -35,7 +28,5 @@ setup(
     install_requires=install_requires,
     setup_requires=setup_requires,
     tests_require=tests_require,
-    ext_modules=ext_modules,
-    cmdclass=cmdclass,
     packages=find_packages(),
 )

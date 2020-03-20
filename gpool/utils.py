@@ -1,5 +1,6 @@
 import torch
 import torch_sparse
+from torch_geometric import utils
 
 
 def sparse_sort(src: torch.Tensor, index: torch.Tensor, dim=0, descending=False, eps=1e-12):
@@ -15,7 +16,7 @@ def sparse_topk(src: torch.Tensor, index: torch.Tensor, k=1, dim=0, descending=F
     sort, perm = sparse_sort(src, index, dim, descending, eps)
 
     idx = index[perm]
-    mask = torch.ones_like(idx, dtype=torch.uint8)
+    mask = torch.ones_like(idx, dtype=torch.bool)
     mask[k:] = idx[k:] != idx[:-k]
 
     return sort[mask], perm[mask]
@@ -42,7 +43,7 @@ def k_hop(edge_index, edge_attr=None, k=2, num_nodes=None, mask=None):
             idx, val = adj_k[exp]
             row, col = idx
 
-            edge_mask = torch.ones_like(row, dtype=torch.uint8)
+            edge_mask = torch.ones_like(row, dtype=torch.bool)
 
             if in_mask is not None:
                 edge_mask &= in_mask[row]
@@ -60,3 +61,28 @@ def k_hop(edge_index, edge_attr=None, k=2, num_nodes=None, mask=None):
         return adj_k[exp]
 
     return adj_pow(k, mask, mask)
+
+
+def add_node_features(dataset):
+    """Add degree features to a dataset.
+
+    Args:
+        dataset (torch_geometric.Dataset): A graph dataset.
+
+    Returns:
+        torch_geometric.Dataset: The same dataset, with `x` containing the
+            degree vector of the nodes.
+    """
+    max_degree = 0.
+    degrees = []
+    slices = [0]
+
+    for data in dataset:
+        degrees.append(utils.degree(data.edge_index[0], data.num_nodes, torch.float))
+        max_degree = max(max_degree, degrees[-1].max().item())
+        slices.append(data.num_nodes)
+
+    dataset.data.x = torch.cat(degrees, dim=0).div_(max_degree).view(-1, 1)
+    dataset.slices['x'] = torch.tensor(slices, dtype=torch.long, device=dataset.data.x.device).cumsum(0)
+
+    return dataset
