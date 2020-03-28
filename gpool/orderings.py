@@ -1,32 +1,38 @@
+from abc import ABC
+
 import torch
 import torch_sparse
 from torch_geometric.data import Data
 
 
-class Ordering:
+class Ordering(ABC):
     def __init__(self, descending=False):
         self.descending = descending
 
     def __call__(self, data: Data):
+        out = self._compute(data)
+
+        if not self.descending:
+            out *= -1
+
+        if 'adj' in data and out.dim() != 2:
+            out = out.view((-1, data.num_nodes)).expand_as(data.mask)
+            out[~data.mask] = float('inf')
+
+        return out
+
+    def _compute(self, data: Data):
         raise NotImplementedError
 
 
 class Random(Ordering):
-    def __call__(self, data: Data):
-        if 'adj' in data:
-            return torch.randperm(data.adj.size(1)).view((1, -1))
-
+    def _compute(self, data: Data):
         return torch.randperm(data.num_nodes)
 
 
 class Canonical(Ordering):
-    def __call__(self, data: Data):
-        if 'adj' in data:
-            out = torch.arange(data.adj.size(1)).view((1, -1))
-        else:
-            out = torch.arange(data.num_nodes)
-
-        return out * (-1)**int(self.descending)
+    def _compute(self, data: Data):
+        return torch.arange(data.num_nodes)
 
 
 class InverseCanonical(Canonical):
@@ -39,23 +45,26 @@ class KHopDegree(Ordering):
         super(KHopDegree, self).__init__(descending)
         self.k = k
 
-    def __call__(self, data: Data):
+    def _compute(self, data: Data):
         if 'adj' in data:
-            size = data.adj.size()
-            size[-1] = 1
-            out = torch.ones(size, dtype=torch.float)
-            out = torch.matrix_power(data.adj, self.k).mm(out)
-        else:
-            out = torch.ones([data.num_nodes, 1], dtype=torch.float)
-            ind, val, n = data.edge_index, data.edge_attr, data.num_nodes
-
-            if val is None:
-                val = torch.ones_like(ind[0], dtype=torch.float)
+            out = torch.ones_like(data.mask, dtype=torch.float)
+            out.unsqueeze_(-1)
 
             for _ in range(self.k):
-                out = torch_sparse.spmm(ind, val, n, n, out)
+                out = data.adj @ out
 
-        return out * (-1)**int(self.descending)
+            return out.squeeze(-1)
+
+        out = torch.ones([data.num_nodes, 1], dtype=torch.float)
+        ind, val, n = data.edge_index, data.edge_attr, data.num_nodes
+
+        if val is None:
+            val = torch.ones_like(ind[0], dtype=torch.float)
+
+        for _ in range(self.k):
+            out = torch_sparse.spmm(ind, val, n, n, out)
+
+        return out.view(-1)
 
 
 class MinKHopDegree(KHopDegree):
