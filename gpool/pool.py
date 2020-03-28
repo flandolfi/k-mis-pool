@@ -1,13 +1,15 @@
 import torch
+from torch_scatter import scatter_min
 from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.data import Batch
 from gpool import orderings, utils
 
 
 class SparsePool(MessagePassing):
-    def __init__(self, kernel_size=1, stride=None, ordering='random', *args, **kwargs):
+    def __init__(self, kernel_size=1, stride=None, ordering='random', aggr='add', *args, **kwargs):
         self.kernel_size = kernel_size
         self.stride = stride if stride else kernel_size + 1
+        self.__aggr__ = aggr
 
         if isinstance(ordering, str):
             opts = {'k': self.stride} if ordering.endswith('k-hop-degree') else {}
@@ -15,7 +17,7 @@ class SparsePool(MessagePassing):
 
         self.ordering = ordering
 
-        super(SparsePool, self).__init__(*args, **kwargs)
+        super(SparsePool, self).__init__('add' if aggr == 'mean' else aggr, *args, **kwargs)
 
     def select(self, data: Batch):
         selected = torch.zeros(data.num_nodes, dtype=torch.bool)
@@ -34,7 +36,8 @@ class SparsePool(MessagePassing):
                 idx = torch.argmin(av_order, dim=0)
             else:
                 av_batch = batch[frontier]
-                _, idx = utils.sparse_min(av_order, av_batch)
+                idx = scatter_min(av_order, av_batch, dim=0, dim_size=data.num_graphs)[1]
+                idx = idx[idx < av_index.size(0)]
 
             if frontier.all():
                 frontier[:] = False
@@ -69,6 +72,9 @@ class SparsePool(MessagePassing):
         if out.edge_attr is None:
             out.edge_attr = torch.ones_like(out.edge_index[0], dtype=torch.float)
 
+        if self.__aggr__ == 'mean':
+            out.x = torch.cat([out.x, torch.ones(out.x.size(0), 1)], dim=-1)
+
         for _ in range(self.kernel_size):
             out.x = self.propagate(edge_index=out.edge_index, edge_attr=out.edge_attr, x=out.x)
 
@@ -76,12 +82,127 @@ class SparsePool(MessagePassing):
                                       self.stride, out.num_nodes, mask)
         out.edge_index, out.edge_attr, out.num_nodes = labels[indices], values, mask.sum().item()
 
-        for key, val in data:
-            if torch.is_tensor(val) and val.size(0) == data.num_nodes:
-                out['key'] = val[mask]
+        for key, val in out('x', 'pos', 'norm', 'batch'):
+            out[key] = val[mask]
+
+        if 'y' in out and out.y.size(0) == data.num_nodes:
+            out.y = out.y.mask
+
+        if self.__aggr__ == 'mean':
+            out.x = out.x[:, :-1]/out.x[:, -1:]
 
         return out
 
     def message(self, x_j, edge_attr):
         return x_j * edge_attr.view((-1, 1))
+
+
+class DensePool(torch.nn.Module):
+    def __init__(self, kernel_size=1, stride=None, ordering='random', aggr='add'):
+        self.kernel_size = kernel_size
+        self.stride = stride if stride else kernel_size + 1
+        self.aggr = getattr(DensePool, aggr + '_pool')
+
+        if isinstance(ordering, str):
+            opts = {'k': self.stride} if ordering.endswith('k-hop-degree') else {}
+            ordering = getattr(orderings, ordering.title().replace('-', ''))(**opts)
+
+        self.ordering = ordering
+
+        super(DensePool, self).__init__()
+
+    def forward(self, data: Batch):
+        out = data.clone()
+
+        if out.adj.dim() < 3:
+            for key in out.keys:
+                out[key].unsqueeze_(0)
+
+        adj = out.adj
+        adj_k = {1: out.adj.clone()}
+
+        for p in range(2, max(self.stride, self.kernel_size) + 1):
+            adj = adj @ adj
+
+            if p in {self.kernel_size, self.stride - 1, self.stride}:
+                adj_k[p] = adj.clone()
+
+        available = out.mask.clone()
+        frontier = torch.zeros_like(available)
+        selected = torch.zeros_like(available)
+
+        excluded = adj_k[self.stride - 1].bool()
+        included = adj_k[self.stride].bool()  # & ~excluded
+
+        order = self.ordering(out)
+        idx = torch.argmin(order, dim=-1).unsqueeze(-1)
+        frontier.scatter_(-1, idx, True)
+
+        while available.any():
+            current = torch.zeros_like(available)
+            current.scatter_(-1, idx, True)
+
+            selected |= current
+            available &= ~current & ~excluded[current]
+            frontier |= included[current] | ~frontier.any(-1, keepdim=True)
+            frontier &= available
+
+            masked_order = order.masked_fill(~frontier, float('Inf'))
+            masked_idx = torch.argmin(masked_order, dim=-1).unsqueeze(-1)
+            fr_mask = frontier.any(-1)
+            idx[fr_mask] = masked_idx[fr_mask]
+
+        out.num_nodes = selected.sum(-1).max().item()
+        mask, perm = torch.topk(selected.float(), out.num_nodes, dim=-1, sorted=False)
+
+        out.x = self.aggr(out.x, adj_k[self.kernel_size])
+        out.adj = adj_k[self.stride]
+        adj_size = out.adj.size()
+        out.adj = out.adj.gather(2, perm.unsqueeze(-2).expand(-1, adj_size[1], -1, *adj_size[3:]))
+        out.adj *= mask.unsqueeze(-2)
+        out.mask = mask.bool()
+
+        for key, val in out:
+            if key != 'mask' and val.size()[:2] == adj_size[:2]:
+                if val.dim() == 2:
+                    out[key] = val.gather(1, perm) * mask
+                else:
+                    out[key] = val.gather(1, perm.unsqueeze(-1).expand(-1, -1, *val.size()[2:]))
+                    out[key] *= mask.unsqueeze(-1)
+
+        return out
+
+    @staticmethod
+    def add_pool(x, adj):
+        return adj @ x
+
+    @staticmethod
+    def mean_pool(x, adj):
+        out = torch.cat([x, torch.ones(*x.size()[:2], 1, dtype=torch.float)], dim=-1)
+        out = DensePool.add_pool(out, adj)
+
+        return out[:, :, :-1]/out[:, :, -1:]
+
+    @staticmethod
+    def max_pool(x, adj):
+        return torch.max(x.unsqueeze(-2).expand(*adj.size(), -1) * adj.unsqueeze(-1), dim=-2)[0]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
