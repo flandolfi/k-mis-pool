@@ -4,7 +4,7 @@ from os import path
 import torch
 from torch.utils.data._utils.collate import default_collate
 
-from torch_geometric.data import Data, Batch, InMemoryDataset, Dataset, download_url
+from torch_geometric.data import Data, InMemoryDataset, Dataset, download_url
 from torch_geometric.transforms import ToDense
 
 
@@ -34,7 +34,7 @@ class DenseDataset(Dataset):
     def __init__(self, data_list):
         super(DenseDataset, self).__init__("")
 
-        self.data = Batch()
+        self.data = Data()
         self.max_nodes = max([data.num_nodes for data in data_list])
         to_dense = ToDense(self.max_nodes)
         dense_list = [to_dense(data) for data in data_list]
@@ -42,7 +42,7 @@ class DenseDataset(Dataset):
         for key in dense_list[0].keys:
             self.data[key] = default_collate([d[key] for d in dense_list])
 
-    def __len__(self):
+    def len(self):
         if self.data.x is not None:
             return self.data.x.size(0)
 
@@ -54,7 +54,7 @@ class DenseDataset(Dataset):
     def get(self, idx):
         mask = self.data.mask[idx]
         max_nodes = mask.type(torch.uint8).argmax(-1).max().item() + 1
-        out = Batch()
+        out = Data()
 
         for key, item in self.data('x', 'pos', 'mask'):
             out[key] = item[idx, :max_nodes]
@@ -65,6 +65,9 @@ class DenseDataset(Dataset):
             out.y = self.data.y[idx]
 
         return out
+
+    def index_select(self, idx):
+        return self.get(idx)
 
     def _download(self):
         pass
