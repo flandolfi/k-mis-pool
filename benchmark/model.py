@@ -14,7 +14,7 @@ from torch_geometric.nn.pool import TopKPooling, SAGPooling, EdgePooling, graclu
 from torch_geometric.nn.dense import dense_diff_pool
 
 from gpool.data import DenseDataset
-from gpool.pool import SparsePool
+from gpool.pool import SparsePool, DensePool
 
 
 class Block(torch.nn.Module):
@@ -206,8 +206,8 @@ class BaseModel(torch.nn.Module):
         return [op(x, batch, batch_size) for op in self.sparse_global_pool_op]
     
     def densify(self, data):
-        data.x, data.mask = to_dense_batch(data.x, data.batch)
-        data.adj = to_dense_adj(data.edge_index, data.batch, data.edge_attr)
+        data.x, data.mask = to_dense_batch(data.x, data['batch'])
+        data.adj = to_dense_adj(data.edge_index, data['batch'], data.edge_attr)
         data.edge_index, data.edge_attr, data.batch = None, None, None
 
         return data
@@ -220,7 +220,7 @@ class BaseModel(torch.nn.Module):
         batch_size = len(index)
 
         data.x = self.conv_in(data)
-        xs = self.global_pool(data.x, data.batch, batch_size, 0)
+        xs = self.global_pool(data.x, data['batch'], batch_size, 0)
 
         for layer, block in enumerate(self.blocks, 1):  
             data = self.pool(data, layer)
@@ -229,7 +229,7 @@ class BaseModel(torch.nn.Module):
                 data = self.densify(data)
             
             data.x = block(data)
-            xs.extend(self.global_pool(data.x, data.batch, batch_size, layer))
+            xs.extend(self.global_pool(data.x, data['batch'], batch_size, layer))
         
         if not self.readout:
             xs = xs[-2:]
@@ -252,15 +252,15 @@ class SimplePool(BaseModel):
     def __init__(self, kernel_size=1, stride=None, ordering='k-hop-degree', aggr='add', **kwargs):
         super(SimplePool, self).__init__(**kwargs)
         self.aggr = aggr
+        self.pool_blocks = torch.nn.ModuleList()
 
-        self.pool_blocks = torch.nn.ModuleList([
-            SparsePool(kernel_size, stride, ordering, aggr=aggr) for _ in range(1, self.num_layers)
-        ])
+        for layer in range(1, self.num_layers):
+            if layer < self.dense:
+                self.pool_blocks.append(SparsePool(kernel_size, stride, ordering, aggr=aggr))
+            else:
+                self.pool_blocks.append(DensePool(kernel_size, stride, ordering, aggr=aggr))
 
     def pool(self, data, layer):
-        if layer > self.dense:
-            raise NotImplementedError
-
         return self.pool_blocks[layer - 1](data)
 
 
@@ -386,10 +386,10 @@ class TopKPool(BaseModel):
             pool.reset_parameters()
     
     def pool(self, data, layer):
-        data.x, data.edge_index, data.edge_attr, data.batch, _, _ = self.pool_blocks[layer - 1](data.x,
-                                                                                                data.edge_index,
-                                                                                                data.edge_attr,
-                                                                                                data.batch)
+        data.x, data.edge_index, data.edge_attr, data['batch'], _, _ = self.pool_blocks[layer - 1](data.x,
+                                                                                                   data.edge_index,
+                                                                                                   data.edge_attr,
+                                                                                                   data['batch'])
 
         return data
 
@@ -430,10 +430,10 @@ class SAGPool(BaseModel):
             pool.reset_parameters()
     
     def pool(self, data, layer):
-        data.x, data.edge_index, data.edge_attr, data.batch, _, _ = self.pool_blocks[layer - 1](data.x,
-                                                                                                data.edge_index,
-                                                                                                data.edge_attr,
-                                                                                                data.batch)
+        data.x, data.edge_index, data.edge_attr, data['batch'], _, _ = self.pool_blocks[layer - 1](data.x,
+                                                                                                   data.edge_index,
+                                                                                                   data.edge_attr,
+                                                                                                   data['batch'])
 
         return data
 
@@ -468,7 +468,7 @@ class EdgePool(BaseModel):
             pool.reset_parameters()
     
     def pool(self, data, layer):
-        data.x, data.edge_index, data.batch, _ = self.pool_blocks[layer - 1](data.x, data.edge_index, data.batch)
+        data.x, data.edge_index, data['batch'], _ = self.pool_blocks[layer - 1](data.x, data.edge_index, data['batch'])
 
         return data
 
