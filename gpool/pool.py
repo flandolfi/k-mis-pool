@@ -174,35 +174,12 @@ class DensePool(torch.nn.Module):
 
     @staticmethod
     def add_pool(x, adj):
-        return adj @ x
+        return adj.transpose(-1, -2) @ x
 
     @staticmethod
     def mean_pool(x, adj):
-        out = torch.cat([x, torch.ones(*x.size()[:2], 1, dtype=torch.float)], dim=-1)
-        out = DensePool.add_pool(out, adj)
-
-        return out[:, :, :-1]/out[:, :, -1:]
+        return DensePool.add_pool(x, adj)/adj.sum(1)
 
     @staticmethod
     def max_pool(x, adj):
         return torch.max(x.unsqueeze(-2).expand(*adj.size(), -1) * adj.unsqueeze(-1), dim=-2)[0]
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
