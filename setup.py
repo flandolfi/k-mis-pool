@@ -7,6 +7,8 @@ install_requires = [
     'numpy',
     'torch',
     'torch_sparse',
+    'torch_scatter',
+    'torch_cluster',
     'torch_geometric',
     'skorch',
     'scikit-learn',
@@ -25,6 +27,9 @@ setup(
     url=url,
     download_url='{}/archive/{}.tar.gz'.format(url, __version__),
     keywords=['pytorch', 'pooling', 'geometric-deep-learning', 'graph'],
+    dependency_links=[
+        "https://pytorch-geometric.com/whl/torch-1.4.0.html"
+    ],
     install_requires=install_requires,
     setup_requires=setup_requires,
     tests_require=tests_require,
