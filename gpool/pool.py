@@ -1,23 +1,50 @@
 import torch
+from abc import ABC
 from torch_scatter import scatter_min
 from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.data import Batch
 from gpool import orderings, utils
 
 
-class SparsePool(MessagePassing):
-    def __init__(self, kernel_size=1, stride=None, ordering='random', aggr='add', *args, **kwargs):
+class _Pool(ABC):
+    def __init__(self, kernel_size=1, stride=None, ordering='random', aggr='add'):
         self.kernel_size = kernel_size
         self.stride = stride if stride else kernel_size + 1
+        self.aggr = aggr
+        self.ordering = self._get_ordering(ordering)
+
+    def _get_ordering(self, ordering):
+        if callable(ordering):
+            return ordering
+
+        if not isinstance(ordering, str):
+            raise ValueError(f"Expected string or callable, got {ordering} instead.")
+
+        opts = {'descending': False}
+
+        if ordering[:4] in {'min-', 'max-'}:
+            opts['descending'] = ordering.startswith('max-')
+            ordering = ordering[4:]
+
+        if ordering.endswith('paths'):
+            if ordering == 'd-paths':
+                return orderings.DPaths(**opts)
+            if ordering == 'k-paths':
+                opts['k'] = self.stride
+            else:
+                opts['k'] = int(ordering[:-6])
+
+            return orderings.KPaths(**opts)
+
+        return getattr(orderings, ordering.title())(**opts)
+
+
+class SparsePool(MessagePassing, _Pool):
+    def __init__(self, kernel_size=1, stride=None, ordering='random', aggr='add', *args, **kwargs):
+        _Pool.__init__(self, kernel_size, stride, ordering, aggr)
+        MessagePassing.__init__(self, 'add' if aggr == 'mean' else aggr, *args, **kwargs)
+
         self.__aggr__ = aggr
-
-        if isinstance(ordering, str):
-            opts = {'k': self.stride} if ordering.endswith('k-hop-degree') else {}
-            ordering = getattr(orderings, ordering.title().replace('-', ''))(**opts)
-
-        self.ordering = ordering
-
-        super(SparsePool, self).__init__('add' if aggr == 'mean' else aggr, *args, **kwargs)
 
     def select(self, data: Batch):
         selected = torch.zeros(data.num_nodes, dtype=torch.bool)
@@ -97,19 +124,12 @@ class SparsePool(MessagePassing):
         return x_j * edge_attr.view((-1, 1))
 
 
-class DensePool(torch.nn.Module):
+class DensePool(torch.nn.Module, _Pool):
     def __init__(self, kernel_size=1, stride=None, ordering='random', aggr='add'):
-        self.kernel_size = kernel_size
-        self.stride = stride if stride else kernel_size + 1
-        self.aggr = getattr(DensePool, aggr + '_pool')
+        _Pool.__init__(self, kernel_size, stride, ordering, aggr)
+        torch.nn.Module.__init__(self)
 
-        if isinstance(ordering, str):
-            opts = {'k': self.stride} if ordering.endswith('k-hop-degree') else {}
-            ordering = getattr(orderings, ordering.title().replace('-', ''))(**opts)
-
-        self.ordering = ordering
-
-        super(DensePool, self).__init__()
+        self.__aggr_op__ = getattr(self, aggr + '_pool')
 
     def forward(self, data: Batch):
         out = data.clone()
@@ -155,7 +175,7 @@ class DensePool(torch.nn.Module):
         out.num_nodes = selected.sum(-1).max().item()
         mask, perm = torch.topk(selected.float(), out.num_nodes, dim=-1, sorted=False)
 
-        out.x = self.aggr(out.x, adj_k[self.kernel_size])
+        out.x = self.__aggr_op__(out.x, adj_k[self.kernel_size])
         out.adj = adj_k[self.stride]
         adj_size = out.adj.size()
         out.adj = out.adj.gather(2, perm.unsqueeze(-2).expand(-1, adj_size[1], -1, *adj_size[3:]))
