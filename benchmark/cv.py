@@ -60,7 +60,7 @@ if __name__ == "__main__":
                         help="Pooling kernel size (default: %(default)s).")
     parser.add_argument('-s', '--stride', type=int, default=2, metavar='STRIDE',
                         help="Pooling stride (default: %(default)s).")
-    parser.add_argument('-o', '--ordering', type=str, default='min-k-hop-degree', metavar='ORDER',
+    parser.add_argument('-o', '--ordering', type=str, default='random', metavar='ORDER',
                         help="Node ordering (default: %(default)s).")
     parser.add_argument('-a', '--aggr', type=str, default='add', metavar='AGGR',
                         help="Local aggregation functions (default: %(default)s).",
@@ -85,6 +85,8 @@ if __name__ == "__main__":
     parser.add_argument('--only_gcn', action='store_true',
                         help="Do not use SAGEConv in the grid search (default:"
                              " %(default)s).")
+    parser.add_argument('--shuffle', action='store_true',
+                        help="Shuffle training samples.")
     parser.add_argument('--patience', type=int, default=20,
                         help="Early-stopping patience epochs (default:"
                              " %(default)s).")
@@ -184,7 +186,7 @@ if __name__ == "__main__":
         'optimizer': torch.optim.Adam,
         'optimizer__weight_decay': 1e-4,
         'callbacks__print_log__sink': skf_pbar.write,
-        'iterator_train__shuffle': True,
+        'iterator_train__shuffle': args.shuffle,
         'device': device
     }
 

@@ -44,7 +44,7 @@ if __name__ == "__main__":
                         help="Pooling kernel size (default: %(default)s).")
     parser.add_argument('-s', '--stride', type=int, default=2, metavar='STRIDE',
                         help="Pooling stride (default: %(default)s).")
-    parser.add_argument('-o', '--ordering', type=str, default='min-k-hop-degree', metavar='ORDER',
+    parser.add_argument('-o', '--ordering', type=str, default='random', metavar='ORDER',
                         help="Node ordering (default: %(default)s).")
     parser.add_argument('-a', '--aggr', type=str, default='add', metavar='AGGR',
                         help="Local aggregation functions (default: %(default)s).",
@@ -98,6 +98,8 @@ if __name__ == "__main__":
     parser.add_argument('--skip_covered', action='store_true',
                         help="Give max priority to uncovered nodes. Only applicable"
                              " to CoverPool")
+    parser.add_argument('--shuffle', action='store_true',
+                        help="Shuffle training samples.")
     parser.add_argument('--no_readout', action='store_false', 
                         help="Use only the final global pooling aggregation as input"
                              " to the dense layers.")
@@ -149,14 +151,14 @@ if __name__ == "__main__":
         'module__jumping_knowledge': args.jumping_knowledge,
         'module__readout': args.no_readout,
         'module__global_pool_op': args.global_pool_op,
-        'module__device':device,
+        'module__device': device,
         'max_epochs': args.epochs,
         'batch_size': args.batch_size,
         'lr': args.lr,
         'criterion': model.PoolLoss if args.model == 'DiffPool' else torch.nn.modules.loss.NLLLoss,
         'optimizer': torch.optim.Adam,
         'optimizer__weight_decay': args.weight_decay,
-        'iterator_train__shuffle': True,
+        'iterator_train__shuffle': args.shuffle,
         'train_split': cv_split,
         'device': device
     }
