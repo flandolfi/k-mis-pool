@@ -205,6 +205,9 @@ class DensePool(_Pool):
         adj = out.adj
         adj_k = {1: out.adj.clone()}
 
+        if self.kernel_size == 0:
+            adj_k[0] = torch.eye(out.adj.size(1), dtype=torch.float).unsqueeze(0).expand_as(out.adj)
+
         for p in range(2, max(self.stride, self.kernel_size) + 1):
             adj @= data.adj
 
