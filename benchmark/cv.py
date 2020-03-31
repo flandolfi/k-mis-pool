@@ -200,11 +200,11 @@ if __name__ == "__main__":
         grid_1 = dict(param_grid)
         grid_2 = dict(param_grid)
 
-        grid_1['module__kernel_size'] = [0, 1]
-        grid_1['module__stride'] = [2, 3]
+        grid_1['module__kernel_size'] = [1, 2]
+        grid_1['module__stride'] = [3]
 
-        grid_2['module__kernel_size'] = [2]
-        grid_2['module__stride'] = [3]
+        grid_2['module__kernel_size'] = [1]
+        grid_2['module__stride'] = [2]
 
         param_grid = [grid_1, grid_2]
 
