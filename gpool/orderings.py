@@ -29,9 +29,14 @@ class Ordering(ABC):
 
 class Canonical(Ordering):
     def _compute(self, data: Batch):
-        size = data.adj.size(1) if 'adj' in data else data.num_nodes
+        if 'adj' in data:
+            device = data.adj.device
+            size = data.adj.size(1)
+        else:
+            device = data.edge_index.device
+            size = data.num_nodes
 
-        return torch.arange(size)
+        return torch.arange(size, dtype=torch.float, device=device)
 
 
 class InverseCanonical(Canonical):
@@ -41,9 +46,14 @@ class InverseCanonical(Canonical):
 
 class Random(Ordering):
     def _compute(self, data: Batch):
-        size = data.adj.size(1) if 'adj' in data else data.num_nodes
+        if 'adj' in data:
+            device = data.adj.device
+            size = data.adj.size(1)
+        else:
+            device = data.edge_index.device
+            size = data.num_nodes
 
-        return torch.randperm(size).float()
+        return torch.randperm(size, dtype=torch.float, device=device)
 
 
 class KPaths(Ordering):
@@ -61,8 +71,8 @@ class KPaths(Ordering):
 
             return out.squeeze(-1)
 
-        out = torch.ones([data.num_nodes, 1], dtype=torch.float)
         ind, val, n = data.edge_index, data.edge_attr, data.num_nodes
+        out = torch.ones([n, 1], dtype=torch.float, device=ind.device)
 
         if val is None:
             val = torch.ones_like(ind[0], dtype=torch.float)
@@ -81,9 +91,10 @@ class Degree(KPaths):
 class DPaths(Ordering):
     def _compute(self, data: Batch):
         if 'adj' in data:
+            device = data.adj.device
             adj = data.adj.clone()
-            seen = adj.bool() + torch.eye(adj.size(1), dtype=torch.bool).unsqueeze(0)
-            mask = torch.ones(adj.size(0), dtype=torch.bool)
+            seen = adj.bool() + torch.eye(adj.size(1), dtype=torch.bool, device=device).unsqueeze(0)
+            mask = torch.ones(adj.size(0), dtype=torch.bool, device=device)
 
             while mask.any():
                 adj[mask] @= data.adj[mask]
@@ -91,6 +102,9 @@ class DPaths(Ordering):
                 seen |= adj.bool()
 
             return adj.diagonal(dim1=-2, dim2=-1)
+
+        ind, val = data.edge_index, data.edge_attr
+        device = ind.device
 
         if 'batch' in data:
             batch = data.batch
@@ -101,21 +115,20 @@ class DPaths(Ordering):
             limits = torch.zeros_like(count)
             limits[1:] = count.cumsum(0)[:-1]
 
-            idx = torch.arange(n, dtype=torch.long) - limits[batch].long()
-            out = torch.eye(max_nodes)[idx]
+            idx = torch.arange(n, dtype=torch.long, device=device) - limits[batch].long()
+            out = torch.eye(max_nodes, dtype=torch.float, device=device)[idx]
         else:
             n = data.num_nodes
-            idx = torch.arange(n, dtype=torch.long)
-            out = torch.eye(n, dtype=torch.float)
-            batch = torch.zeros(n, dtype=torch.long)
+            idx = torch.arange(n, dtype=torch.long, device=device)
+            out = torch.eye(n, dtype=torch.float, device=device)
+            batch = torch.zeros(n, dtype=torch.long, device=device)
             num_graphs = 1
 
-        ind, val = data.edge_index, data.edge_attr
         seen = out.bool()
-        mask = torch.ones(num_graphs, dtype=torch.bool)
+        mask = torch.ones(num_graphs, dtype=torch.bool, device=device)
 
         if val is None:
-            val = torch.ones_like(ind[0], dtype=torch.float)
+            val = torch.ones_like(ind[0], dtype=torch.float, device=device)
 
         while mask.any():
             out = torch_sparse.spmm(ind, val, n, n, out)
