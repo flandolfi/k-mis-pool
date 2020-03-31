@@ -1,17 +1,46 @@
 import torch
-from abc import ABC
+from abc import ABC, abstractmethod
 from torch_scatter import scatter_min
 from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.data import Batch
 from gpool import orderings, utils
 
 
-class _Pool(ABC):
-    def __init__(self, kernel_size=1, stride=None, ordering='random', aggr='add'):
+class _Pool(ABC, torch.nn.Module):
+    def __init__(self, kernel_size=1, stride=None, ordering='random', aggr='add', cached=False):
         self.kernel_size = kernel_size
         self.stride = stride if stride else kernel_size + 1
         self.aggr = aggr
         self.ordering = self._get_ordering(ordering)
+
+        self.cache = {True: None, False: None}
+
+        if ordering != 'random':
+            if cached == 'both' or cached == 'train':
+                self.cache[True] = {}
+            elif cached == 'both' or cached == 'test':
+                self.cache[False] = {}
+
+        super(_Pool, self).__init__()
+
+    @property
+    def cached(self):
+        return self.cache[self.training] is not None
+
+    @abstractmethod
+    def _is_same_data(self, data, cache):
+        return NotImplementedError
+
+    def _set_cache(self, **kwargs):
+        self.cache[self.training] = kwargs
+
+    def _maybe_cache(self, data, *keys):
+        cache = self.cache[self.training]
+
+        if bool(cache) and self._is_same_data(data, cache):
+            return (cache[k] for k in keys)
+
+        return None
 
     def _get_ordering(self, ordering):
         if callable(ordering):
@@ -20,31 +49,35 @@ class _Pool(ABC):
         if not isinstance(ordering, str):
             raise ValueError(f"Expected string or callable, got {ordering} instead.")
 
+        tokens = ordering.split('-')
         opts = {'descending': False}
 
-        if ordering[:4] in {'min-', 'max-'}:
-            opts['descending'] = ordering.startswith('max-')
-            ordering = ordering[4:]
+        if tokens[0] in {'min', 'max'}:
+            opts['descending'] = tokens[0] == 'max'
+            tokens = tokens[1:]
 
-        if ordering.endswith('paths'):
-            if ordering == 'd-paths':
+        if tokens[-1] == 'paths':
+            k = tokens[-2]
+
+            if k in {'d', 'diameter'}:
                 return orderings.DPaths(**opts)
-            if ordering == 'k-paths':
+            if k in {'s', 'stride'}:
                 opts['k'] = self.stride
             else:
-                opts['k'] = int(ordering[:-6])
+                opts['k'] = int(k)
 
             return orderings.KPaths(**opts)
 
-        return getattr(orderings, ordering.title())(**opts)
+        return getattr(orderings, ''.join(t.title() for t in tokens))(**opts)
 
 
 class SparsePool(MessagePassing, _Pool):
-    def __init__(self, kernel_size=1, stride=None, ordering='random', aggr='add', *args, **kwargs):
-        _Pool.__init__(self, kernel_size, stride, ordering, aggr)
-        MessagePassing.__init__(self, 'add' if aggr == 'mean' else aggr, *args, **kwargs)
+    def __init__(self, kernel_size=1, stride=None, ordering='random', aggr='add', cached=False):
+        MessagePassing.__init__(self, aggr=aggr)
+        _Pool.__init__(self, kernel_size, stride, ordering, aggr, cached)
 
-        self.__aggr__ = aggr
+    def _is_same_data(self, data, cache):
+        return data.edge_index.equal(cache['edge_index'])
 
     def select(self, data: Batch):
         selected = torch.zeros(data.num_nodes, dtype=torch.bool)
@@ -90,33 +123,44 @@ class SparsePool(MessagePassing, _Pool):
 
         return selected
 
+    def pool(self, x, edge_index, edge_attr, mask, pos=None):
+        if pos is not None:
+            x = torch.cat([x, pos], dim=-1)
+
+        for _ in range(self.kernel_size):
+            x = self.propagate(edge_index=edge_index, edge_attr=edge_attr, x=x)
+
+        x = x[mask]
+
+        if pos is not None:
+            return x[:, :-pos.size(-1)], x[:, -pos.size(-1):]
+
+        return x, None
+
     def forward(self, data: Batch):
+        cache = self._maybe_cache(data, 'out', 'edge_index', 'edge_attr', 'mask')
+
+        if cache is not None:
+            out, edge_index, edge_attr, mask = cache
+            out.x, _ = self.pool(data.x, edge_index, edge_attr, mask)
+
+            return out
+
         mask = self.select(data)
         labels = torch.empty(data.num_nodes, dtype=torch.long)
         labels[mask] = torch.arange(mask.sum().item(), dtype=torch.long)
+        edge_index, edge_attr = data.edge_index, data.edge_attr
         out = data.clone()
 
-        if out.edge_attr is None:
-            out.edge_attr = torch.ones_like(out.edge_index[0], dtype=torch.float)
+        if edge_attr is None:
+            edge_attr = torch.ones_like(edge_index[0], dtype=torch.float)
 
-        if self.__aggr__ == 'mean':
-            out.x = torch.cat([out.x, torch.ones(out.x.size(0), 1)], dim=-1)
+        indices, out.edge_attr = utils.k_hop(edge_index, edge_attr, self.stride, out.num_nodes, mask)
+        out.edge_index, out.batch, out.num_nodes = labels[indices], out.batch[mask], mask.sum().item()
+        out.x, out.pos = self.pool(data.x, edge_index, edge_attr, mask, out.pos)
 
-        for _ in range(self.kernel_size):
-            out.x = self.propagate(edge_index=out.edge_index, edge_attr=out.edge_attr, x=out.x)
-
-        indices, values = utils.k_hop(out.edge_index, out.edge_attr,
-                                      self.stride, out.num_nodes, mask)
-        out.edge_index, out.edge_attr, out.num_nodes = labels[indices], values, mask.sum().item()
-
-        for key, val in out('x', 'pos', 'norm', 'batch'):
-            out[key] = val[mask]
-
-        if 'y' in out and out.y.size(0) == data.num_nodes:
-            out.y = out.y.mask
-
-        if self.__aggr__ == 'mean':
-            out.x = out.x[:, :-1]/out.x[:, -1:]
+        if self.cached:
+            self._set_cache(out=out, edge_index=edge_index, edge_attr=edge_attr, mask=mask)
 
         return out
 
@@ -124,14 +168,34 @@ class SparsePool(MessagePassing, _Pool):
         return x_j * edge_attr.view((-1, 1))
 
 
-class DensePool(torch.nn.Module, _Pool):
-    def __init__(self, kernel_size=1, stride=None, ordering='random', aggr='add'):
-        _Pool.__init__(self, kernel_size, stride, ordering, aggr)
-        torch.nn.Module.__init__(self)
+class DensePool(_Pool):
+    def __init__(self, kernel_size=1, stride=None, ordering='random', aggr='add', cached=False):
+        _Pool.__init__(self, kernel_size, stride, ordering, aggr, cached)
 
-        self.__aggr_op__ = getattr(self, aggr + '_pool')
+        self.__pool_op__ = getattr(self, aggr + '_pool')
+
+    def _is_same_data(self, data, cache):
+        return data.adj.equal(cache['adj'])
+
+    def pool(self, x, adj, mask, pos=None):
+        x = self.__pool_op__(x, adj)
+        x *= mask.unsqueeze(-1)
+
+        if pos is not None:
+            pos = self.mean_pool(pos, adj)
+            pos *= mask.unsqueeze(-1)
+
+        return x, pos
 
     def forward(self, data: Batch):
+        cache = self._maybe_cache(data, 'out', 'adj_kernel', 'mask')
+
+        if cache is not None:
+            out, adj_kernel, mask = cache
+            out.x, _ = self.pool(data.x, adj_kernel, mask)
+
+            return out
+
         out = data.clone()
 
         if out.adj.dim() < 3:
@@ -142,7 +206,7 @@ class DensePool(torch.nn.Module, _Pool):
         adj_k = {1: out.adj.clone()}
 
         for p in range(2, max(self.stride, self.kernel_size) + 1):
-            adj = adj @ adj
+            adj @= data.adj
 
             if p in {self.kernel_size, self.stride - 1, self.stride}:
                 adj_k[p] = adj.clone()
@@ -175,20 +239,20 @@ class DensePool(torch.nn.Module, _Pool):
         out.num_nodes = selected.sum(-1).max().item()
         mask, perm = torch.topk(selected.float(), out.num_nodes, dim=-1, sorted=False)
 
-        out.x = self.__aggr_op__(out.x, adj_k[self.kernel_size])
-        out.adj = adj_k[self.stride]
         adj_size = out.adj.size()
+        adj_kernel = adj_k[self.kernel_size]
+        adj_kernel = adj_kernel.gather(2, perm.unsqueeze(-2).expand(-1, adj_size[1], -1, *adj_size[3:]))
+
+        out.x, out.pos = self.pool(out.x, adj_kernel, mask, out.pos)
+        out.adj = adj_k[self.stride]
         out.adj = out.adj.gather(2, perm.unsqueeze(-2).expand(-1, adj_size[1], -1, *adj_size[3:]))
+        out.adj = out.adj.gather(1, perm.unsqueeze(-1).expand(-1, -1, *out.adj.size()[2:]))
         out.adj *= mask.unsqueeze(-2)
+        out.adj *= mask.unsqueeze(-1)
         out.mask = mask.bool()
 
-        for key, val in out:
-            if key != 'mask' and val.size()[:2] == adj_size[:2]:
-                if val.dim() == 2:
-                    out[key] = val.gather(1, perm) * mask
-                else:
-                    out[key] = val.gather(1, perm.unsqueeze(-1).expand(-1, -1, *val.size()[2:]))
-                    out[key] *= mask.unsqueeze(-1)
+        if self.cached:
+            self._set_cache(out=out, adj=data.adj, adj_kernel=adj_kernel, mask=mask)
 
         return out
 

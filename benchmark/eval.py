@@ -48,7 +48,7 @@ if __name__ == "__main__":
                         help="Node ordering (default: %(default)s).")
     parser.add_argument('-a', '--aggr', type=str, default='add', metavar='AGGR',
                         help="Local aggregation functions (default: %(default)s).",
-                        choices=['add', 'avg', 'max'])
+                        choices=['add', 'mean', 'max'])
     parser.add_argument('--epochs', type=int, default=1000, metavar='E',
                         help="Number of epochs (default: %(default)s).")
     parser.add_argument('--dense', action='store_true',
@@ -100,6 +100,9 @@ if __name__ == "__main__":
                              " to CoverPool")
     parser.add_argument('--shuffle', action='store_true',
                         help="Shuffle training samples.")
+    parser.add_argument('--cached', type=str, default=None,
+                        help="Cache coarsened graphs.",
+                        choices=['both', 'train', 'test'])
     parser.add_argument('--no_readout', action='store_false', 
                         help="Use only the final global pooling aggregation as input"
                              " to the dense layers.")
@@ -168,6 +171,7 @@ if __name__ == "__main__":
             module__kernel_size=args.kernel_size,
             module__stride=args.stride,
             module__ordering=args.ordering,
+            module__cached=args.cached,
             module__aggr=args.aggr,
             module__dense=args.dense_from if args.dense else False
         )
