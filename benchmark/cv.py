@@ -56,10 +56,6 @@ if __name__ == "__main__":
     parser.add_argument('--global_pool_op', type=str, nargs='+', default=['add'], metavar='POOL',
                         help="Global aggregation function(s) (default:"
                              " %(default)s).")
-    parser.add_argument('-k', '--kernel_size', type=int, default=1, metavar='SIZE',
-                        help="Pooling kernel size (default: %(default)s).")
-    parser.add_argument('-s', '--stride', type=int, default=2, metavar='STRIDE',
-                        help="Pooling stride (default: %(default)s).")
     parser.add_argument('-o', '--ordering', type=str, default='random', metavar='ORDER',
                         help="Node ordering (default: %(default)s).")
     parser.add_argument('-a', '--aggr', type=str, default='add', metavar='AGGR',
@@ -201,9 +197,18 @@ if __name__ == "__main__":
     }
 
     if args.model == 'SimplePool':
+        grid_1 = dict(param_grid)
+        grid_2 = dict(param_grid)
+
+        grid_1['module__kernel_size'] = [0, 1]
+        grid_1['module__stride'] = [2, 3]
+
+        grid_2['module__kernel_size'] = [2]
+        grid_2['module__stride'] = [3]
+
+        param_grid = [grid_1, grid_2]
+
         shared_params.update(
-            module__kernel_size=args.kernel_size,
-            module__stride=args.stride,
             module__ordering=args.ordering,
             module__cached=args.cached,
             module__aggr=args.aggr,
