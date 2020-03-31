@@ -80,13 +80,14 @@ class SparsePool(MessagePassing, _Pool):
         return data.edge_index.equal(cache['edge_index'])
 
     def select(self, data: Batch):
-        selected = torch.zeros(data.num_nodes, dtype=torch.bool)
+        device = data.x.device
+        selected = torch.zeros(data.num_nodes, dtype=torch.bool, device=device)
         available = torch.ones_like(selected)
         frontier = available.clone()
         neighbors = selected.clone()
 
         order = self.ordering(data)
-        index = torch.arange(data.num_nodes)
+        index = torch.arange(data.num_nodes, device=device)
         batch = data['batch']
 
         while available.any():
@@ -146,9 +147,10 @@ class SparsePool(MessagePassing, _Pool):
 
             return out
 
+        device = data.x.device
         mask = self.select(data)
-        labels = torch.empty(data.num_nodes, dtype=torch.long)
-        labels[mask] = torch.arange(mask.sum().item(), dtype=torch.long)
+        labels = torch.empty(data.num_nodes, dtype=torch.long, device=device)
+        labels[mask] = torch.arange(mask.sum().item(), dtype=torch.long, device=device)
         edge_index, edge_attr = data.edge_index, data.edge_attr
         out = data.clone()
 
@@ -196,6 +198,7 @@ class DensePool(_Pool):
 
             return out
 
+        device = data.x.device
         out = data.clone()
 
         if out.adj.dim() < 3:
@@ -206,7 +209,7 @@ class DensePool(_Pool):
         adj_k = {1: out.adj.clone()}
 
         if self.kernel_size == 0:
-            adj_k[0] = torch.eye(out.adj.size(1), dtype=torch.float).unsqueeze(0).expand_as(out.adj)
+            adj_k[0] = torch.eye(out.adj.size(1), dtype=torch.float, device=device).unsqueeze(0).expand_as(out.adj)
 
         for p in range(2, max(self.stride, self.kernel_size) + 1):
             adj @= data.adj
