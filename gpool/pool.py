@@ -28,8 +28,12 @@ class _Pool(ABC, torch.nn.Module):
         return self.cache[self.training] is not None
 
     @abstractmethod
+    def _summarize(self, data):
+        raise NotImplementedError
+
+    @abstractmethod
     def _is_same_data(self, data, cache):
-        return NotImplementedError
+        raise NotImplementedError
 
     def _set_cache(self, **kwargs):
         self.cache[self.training] = kwargs
@@ -75,6 +79,9 @@ class SparsePool(MessagePassing, _Pool):
     def __init__(self, kernel_size=1, stride=None, ordering='random', aggr='add', cached=False):
         MessagePassing.__init__(self, aggr=aggr)
         _Pool.__init__(self, kernel_size, stride, ordering, aggr, cached)
+
+    def _summarize(self, data):
+        pass
 
     def _is_same_data(self, data, cache):
         return data.edge_index.equal(cache['edge_index'])
@@ -176,8 +183,11 @@ class DensePool(_Pool):
 
         self.__pool_op__ = getattr(self, aggr + '_pool')
 
+    def _summarize(self, data):
+        return data.adj[::max(2, data.adj.size(0) // 10)].sum().item()
+
     def _is_same_data(self, data, cache):
-        return data.adj.equal(cache['adj'])
+        return cache['adj'] == self._summarize(data)
 
     def pool(self, x, adj, mask, pos=None):
         x = self.__pool_op__(x, adj)
@@ -258,7 +268,7 @@ class DensePool(_Pool):
         out.mask = mask.bool()
 
         if self.cached:
-            self._set_cache(out=out, adj=data.adj, adj_kernel=adj_kernel, mask=mask)
+            self._set_cache(out=out, adj=self._summarize(data), adj_kernel=adj_kernel, mask=mask)
 
         return out
 
