@@ -7,7 +7,7 @@ from torch_geometric.data import Batch
 
 
 class Ordering(ABC):
-    def __init__(self, descending=False):
+    def __init__(self, descending=True):
         self.descending = descending
 
     def __call__(self, data: Batch):
@@ -57,7 +57,7 @@ class Random(Ordering):
 
 
 class KPaths(Ordering):
-    def __init__(self, k=1, descending=False):
+    def __init__(self, k=1, descending=True):
         super(KPaths, self).__init__(descending)
         self.k = k
 
@@ -84,7 +84,7 @@ class KPaths(Ordering):
 
 
 class Degree(KPaths):
-    def __init__(self, descending=False):
+    def __init__(self, descending=True):
         super(Degree, self).__init__(1, descending)
 
 
