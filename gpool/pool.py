@@ -7,10 +7,11 @@ from gpool import orderings, utils
 
 
 class _Pool(ABC, torch.nn.Module):
-    def __init__(self, kernel_size=1, stride=None, ordering='random', aggr='add', cached=False):
-        self.kernel_size = kernel_size
-        self.stride = stride if stride else kernel_size + 1
+    def __init__(self, pool_size=1, stride=None, ordering='random', aggr='add', add_loops=True, cached=False):
+        self.pool_size = pool_size
+        self.stride = stride if stride else pool_size + 1
         self.aggr = aggr
+        self.add_loops = add_loops
         self.ordering = self._get_ordering(ordering)
 
         self.cache = {True: None, False: None}
@@ -54,7 +55,7 @@ class _Pool(ABC, torch.nn.Module):
             raise ValueError(f"Expected string or callable, got {ordering} instead.")
 
         tokens = ordering.split('-')
-        opts = {'descending': False}
+        opts = {'descending': True}
 
         if tokens[0] in {'min', 'max'}:
             opts['descending'] = tokens[0] == 'max'
@@ -67,6 +68,8 @@ class _Pool(ABC, torch.nn.Module):
                 return orderings.DPaths(**opts)
             if k in {'s', 'stride'}:
                 opts['k'] = self.stride
+            elif k in {'p', 'pool', 'pooling'}:
+                opts['k'] = self.pool_size
             else:
                 opts['k'] = int(k)
 
@@ -76,9 +79,9 @@ class _Pool(ABC, torch.nn.Module):
 
 
 class SparsePool(MessagePassing, _Pool):
-    def __init__(self, kernel_size=1, stride=None, ordering='random', aggr='add', cached=False):
+    def __init__(self, pool_size=1, stride=None, ordering='random', aggr='add', add_loops=True, cached=False):
         MessagePassing.__init__(self, aggr=aggr)
-        _Pool.__init__(self, kernel_size, stride, ordering, aggr, cached)
+        _Pool.__init__(self, pool_size, stride, ordering, aggr, add_loops, cached)
 
     def _summarize(self, data):
         pass
@@ -135,8 +138,11 @@ class SparsePool(MessagePassing, _Pool):
         if pos is not None:
             x = torch.cat([x, pos], dim=-1)
 
-        for _ in range(self.kernel_size):
-            x = self.propagate(edge_index=edge_index, edge_attr=edge_attr, x=x)
+        for _ in range(self.pool_size):
+            if self.add_loops:
+                x += self.propagate(edge_index=edge_index, edge_attr=edge_attr, x=x)
+            else:
+                x = self.propagate(edge_index=edge_index, edge_attr=edge_attr, x=x)
 
         x = x[mask]
 
@@ -178,8 +184,8 @@ class SparsePool(MessagePassing, _Pool):
 
 
 class DensePool(_Pool):
-    def __init__(self, kernel_size=1, stride=None, ordering='random', aggr='add', cached=False):
-        _Pool.__init__(self, kernel_size, stride, ordering, aggr, cached)
+    def __init__(self, pool_size=1, stride=None, ordering='random', aggr='add', add_loops=True, cached=False):
+        _Pool.__init__(self, pool_size, stride, ordering, aggr, add_loops, cached)
 
         self.__pool_op__ = getattr(self, aggr + '_pool')
 
@@ -216,15 +222,23 @@ class DensePool(_Pool):
                 out[key].unsqueeze_(0)
 
         adj = out.adj
-        adj_k = {1: out.adj.clone()}
+        adj_k = {}
 
-        if self.kernel_size == 0:
-            adj_k[0] = torch.eye(out.adj.size(1), dtype=torch.float, device=device).unsqueeze(0).expand_as(out.adj)
+        if self.add_loops:
+            adj += torch.eye(adj.size(1), dtype=torch.float, device=device).unsqueeze(0).expand_as(adj)
+            adj[~out.mask] = 0.
 
-        for p in range(2, max(self.stride, self.kernel_size) + 1):
+        if self.stride == 1 or self.pool_size == 0:
+            adj_k[0] = torch.eye(adj.size(1), dtype=torch.float, device=device).unsqueeze(0).expand_as(adj)
+            adj_k[0][~out.mask] = 0.
+
+        if self.stride == 2 or self.pool_size == 1:
+            adj_k = {1: adj.clone()}
+
+        for p in range(2, max(self.stride, self.pool_size) + 1):
             adj @= data.adj
 
-            if p in {self.kernel_size, self.stride - 1, self.stride}:
+            if p in {self.pool_size, self.stride - 1, self.stride}:
                 adj_k[p] = adj.clone()
 
         available = out.mask.clone()
@@ -256,7 +270,7 @@ class DensePool(_Pool):
         mask, perm = torch.topk(selected.float(), out.num_nodes, dim=-1, sorted=False)
 
         adj_size = out.adj.size()
-        adj_kernel = adj_k[self.kernel_size]
+        adj_kernel = adj_k[self.pool_size]
         adj_kernel = adj_kernel.gather(2, perm.unsqueeze(-2).expand(-1, adj_size[1], -1, *adj_size[3:]))
 
         out.x, out.pos = self.pool(out.x, adj_kernel, mask, out.pos)

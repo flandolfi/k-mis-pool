@@ -40,7 +40,7 @@ if __name__ == "__main__":
     parser.add_argument('--global_pool_op', type=str, nargs='+', default=['add'], metavar='POOL',
                         help="Global aggregation function(s) (default:"
                              " %(default)s).")
-    parser.add_argument('-k', '--kernel_size', type=int, default=1, metavar='SIZE',
+    parser.add_argument('-p', '--pool_size', type=int, default=1, metavar='SIZE',
                         help="Pooling kernel size (default: %(default)s).")
     parser.add_argument('-s', '--stride', type=int, default=2, metavar='STRIDE',
                         help="Pooling stride (default: %(default)s).")
@@ -168,7 +168,7 @@ if __name__ == "__main__":
 
     if args.model == 'SimplePool':
         params.update(
-            module__kernel_size=args.kernel_size,
+            module__pool_size=args.pool_size,
             module__stride=args.stride,
             module__ordering=args.ordering,
             module__cached=args.cached,

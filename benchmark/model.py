@@ -249,16 +249,16 @@ class BaseModel(torch.nn.Module):
 class SimplePool(BaseModel):
     """
     """
-    def __init__(self, kernel_size=1, stride=None, ordering='k-hop-degree', aggr='add', cached=False, **kwargs):
+    def __init__(self, pool_size=1, stride=None, ordering='k-hop-degree', aggr='add', cached=False, **kwargs):
         super(SimplePool, self).__init__(**kwargs)
         self.aggr = aggr
         self.pool_blocks = torch.nn.ModuleList()
 
         for layer in range(1, self.num_layers):
             if layer < self.dense:
-                self.pool_blocks.append(SparsePool(kernel_size, stride, ordering, aggr, cached))
+                self.pool_blocks.append(SparsePool(pool_size, stride, ordering, aggr, layer == 1, cached))
             else:
-                self.pool_blocks.append(DensePool(kernel_size, stride, ordering, aggr, cached))
+                self.pool_blocks.append(DensePool(pool_size, stride, ordering, aggr, layer == 1, cached))
 
     def pool(self, data, layer):
         return self.pool_blocks[layer - 1](data)
