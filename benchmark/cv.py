@@ -197,16 +197,7 @@ if __name__ == "__main__":
     }
 
     if args.model == 'SimplePool':
-        grid_1 = dict(param_grid)
-        grid_2 = dict(param_grid)
-
-        grid_1['module__pool_size'] = [1, 2]
-        grid_1['module__stride'] = [3]
-
-        grid_2['module__pool_size'] = [1]
-        grid_2['module__stride'] = [2]
-
-        param_grid = [grid_1, grid_2]
+        param_grid['module__pool_size'] = [1, 2, 3]
 
         shared_params.update(
             module__ordering=args.ordering,
