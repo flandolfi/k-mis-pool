@@ -4,6 +4,7 @@ import torch
 import torch_sparse
 import torch_scatter
 from torch_geometric.data import Batch
+from torch_geometric.utils import remove_self_loops
 
 
 class Ordering(ABC):
@@ -101,7 +102,7 @@ class DPaths(Ordering):
                 mask = (adj.bool() & ~seen).any(-1).any(-1)
                 seen |= adj.bool()
 
-            return adj.diagonal(dim1=-2, dim2=-1)
+            return adj.sum(-1)
 
         ind, val = data.edge_index, data.edge_attr
         device = ind.device
@@ -141,3 +142,29 @@ class DPaths(Ordering):
             val = val[todo]
 
         return out.gather(1, idx.unsqueeze(1)).squeeze()
+
+
+class Triangles(Ordering):
+    def _compute(self, data: Batch):
+        if 'adj' in data:
+            out = data.adj.bool().float()
+            idx = torch.arange(out.size(1), dtype=torch.long, device=out.device)
+            out[:, idx, idx] = 0
+
+            out = out.matrix_power(3)
+
+            return out[:, idx, idx]
+
+        ind, n = data.edge_index, data.num_nodes
+        val = torch.ones_like(ind[0], dtype=torch.float)
+        ind, val = remove_self_loops(ind, val)
+        ind_out, val_out = ind.clone(), val.clone()
+
+        for _ in range(2):
+            ind_out, val_out = torch_sparse.spspmm(ind_out, val_out, ind, val, n, n, n, True)
+
+        mask = ind_out[0] == ind_out[1]
+        out = torch.zeros(n, device=ind.device, dtype=torch.float)
+        out[ind_out[0, mask]] = val_out[mask]
+
+        return out
