@@ -12,7 +12,7 @@ from skorch.helper import predefined_split
 
 from benchmark import model
 from gpool.utils import add_node_features
-from gpool.data import NDPDataset, CustomDataset
+from benchmark.data import NDPDataset, CustomDataset
 
 from sklearn.model_selection import StratifiedShuffleSplit
 
