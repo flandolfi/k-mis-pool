@@ -1,61 +1,90 @@
 import torch
-import torch_sparse
-from torch_geometric import utils
+from torch_geometric.data import Data
+from torch_sparse import SparseTensor
 
 
-def k_hop(edge_index, edge_attr=None, k=2, num_nodes=None, mask=None):
-    n = num_nodes if num_nodes else edge_index.max().item() + 1
+def sparse_min_sum_mm(lhs: SparseTensor, rhs: SparseTensor):
+    assert lhs.size(1) == rhs.size(0)
 
-    if edge_attr is None:
-        edge_attr = torch.ones_like(edge_index[0], dtype=torch.float)
+    l_col, l_row, l_val = lhs.t().coo()
+    r_row, r_col, r_val = rhs.coo()
 
-    adj_k = {1: (edge_index, edge_attr)}
+    l_col_count = l_col.bincount(minlength=lhs.size(1))
+    r_row_count = r_row.bincount(minlength=rhs.size(0))
 
-    def adj_pow(exp, in_mask=None, out_mask=None):
-        if exp in adj_k:
-            idx, val = adj_k[exp]
-            row, col = idx
+    rep = r_row_count[l_col]
 
-            edge_mask = torch.ones_like(row, dtype=torch.bool)
+    perm = torch.arange(r_row.size(0)).split(r_row_count.tolist())
+    perm = torch.cat([t.repeat(r) for t, r in zip(perm, l_col_count)])
 
-            if in_mask is not None:
-                edge_mask &= in_mask[row]
+    o_row = l_row.repeat_interleave(rep)
+    o_col = r_col[perm]
+    o_val = l_val.repeat_interleave(rep) + r_val[perm]
 
-            if out_mask is not None:
-                edge_mask &= out_mask[col]
-
-            return idx[:, edge_mask], val[edge_mask]
-
-        l_exp = exp // 2
-        l_ind, l_val = adj_pow(l_exp, in_mask, None)
-        r_ind, r_val = adj_pow(exp - l_exp, None, out_mask)
-        adj_k[exp] = torch_sparse.spspmm(l_ind, l_val, r_ind, r_val, n, n, n)
-
-        return adj_k[exp]
-
-    return adj_pow(k, mask, mask)
+    return SparseTensor(
+            row=o_row, col=o_col, value=o_val,
+            sparse_sizes=(lhs.size(0), rhs.size(1))
+        ).coalesce("min")
 
 
-def add_node_features(dataset):
-    """Add degree features to a dataset.
+def pairwise_distances(adj: SparseTensor, max_value=None):
+    if max_value is None:
+        max_value = float("inf")
 
-    Args:
-        dataset (torch_geometric.Dataset): A graph dataset.
+    dists = adj.clone().fill_diag(0.)
+    old_v = adj.storage.value().clone()
 
-    Returns:
-        torch_geometric.Dataset: The same dataset, with `x` containing the
-            degree vector of the nodes.
-    """
-    max_degree = 0.
-    degrees = []
-    slices = [0]
+    for _ in range(1, adj.size(0)):
+        step = sparse_min_sum_mm(dists, adj)
+        r, c, v = [torch.cat(ts) for ts in zip(dists.coo(), step.coo())]
+        mask = v <= max_value
+        r, c, v = r[mask], c[mask], v[mask]
+        dists = SparseTensor(row=r, col=c, value=v).coalesce("min")
 
-    for data in dataset:
-        degrees.append(utils.degree(data.edge_index[0], data.num_nodes, torch.float))
-        max_degree = max(max_degree, degrees[-1].max().item())
-        slices.append(data.num_nodes)
+        if dists.storage.value().equal(old_v):
+            break
 
-    dataset.data.x = torch.cat(degrees, dim=0).div_(max_degree).view(-1, 1)
-    dataset.slices['x'] = torch.tensor(slices, dtype=torch.long, device=dataset.data.x.device).cumsum(0)
+        old_v = dists.storage.value().clone()
 
-    return dataset
+    return dists
+
+
+def sparse_matrix_power(matrix: SparseTensor, p=2):
+    if p == 0:
+        return SparseTensor.eye(matrix.size(0), matrix.size(1))
+
+    def _mat_pow(m: SparseTensor, k):
+        if k == 1:
+            return m.clone()
+
+        m_pow = _mat_pow(m, k//2)
+        m_pow = m_pow @ m_pow
+
+        if k % 2 == 1:
+            m_pow = m_pow @ m
+
+        return m_pow
+
+    return _mat_pow(matrix, p)
+
+
+def maximal_independent_set(data: Data, perm=None):
+    n, (row, col) = data.num_nodes, data.edge_index.clone()
+    device = row.device
+
+    if perm is None:
+        perm = torch.arange(n, dtype=torch.long, device=device)
+
+    mis = torch.zeros(n, dtype=torch.bool, device=device)
+    mask = mis.clone()
+    edge_mask = perm[row] > perm[col]
+    mask = torch.scatter_add(mask, 0, row, edge_mask)
+
+    while not mask.all():
+        mis |= ~mask
+        edge_mask = mask[row] | mask[col]
+        row, col = row[edge_mask], col[edge_mask]
+        edge_mask = perm[row] > perm[col]
+        mask = torch.scatter_add(torch.zeros_like(mask), 0, row, edge_mask)
+
+    return mis
