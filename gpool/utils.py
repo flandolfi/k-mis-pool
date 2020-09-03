@@ -1,5 +1,4 @@
 import torch
-from torch_geometric.data import Data
 from torch_sparse import SparseTensor
 
 
@@ -31,7 +30,7 @@ def pairwise_distances(adj: SparseTensor, max_value=None):
     if max_value is None:
         max_value = float("inf")
 
-    dists = adj.clone().fill_diag(0.)
+    dists = adj.fill_diag(0.)
     old_v = adj.storage.value().clone()
 
     for _ in range(1, adj.size(0)):
@@ -68,9 +67,9 @@ def sparse_matrix_power(matrix: SparseTensor, p=2):
     return _mat_pow(matrix, p)
 
 
-def maximal_independent_set(data: Data, perm=None):
-    n, (row, col) = data.num_nodes, data.edge_index.clone()
-    device = row.device
+def maximal_independent_set(adj: SparseTensor, perm=None):
+    row, col, _ = adj.clone().coo()
+    n, device = adj.size(0), adj.device()
 
     if perm is None:
         perm = torch.arange(n, dtype=torch.long, device=device)
