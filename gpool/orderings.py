@@ -6,6 +6,8 @@ from torch_sparse import SparseTensor
 
 
 class Ordering(ABC):
+    cacheable = False
+
     def __init__(self, descending=True):
         self.descending = descending
 
@@ -27,6 +29,8 @@ class Random(Ordering):
 
 
 class Degree(Ordering):
+    cacheable = True
+
     def _compute(self, x: torch.FloatTensor, adj: SparseTensor):
         return adj.sum(1).view(-1)
 
@@ -41,4 +45,4 @@ class Curvature(Ordering):
         lap_idx, lap_val = get_laplacian(torch.stack((row, col)), val,
                                          self.normalization, torch.float, adj.size(0))
         lap = SparseTensor.from_edge_index(lap_idx, lap_val, adj.sparse_sizes(), True)
-        return 0.5*torch.norm(lap % x, p=2, dim=-1)
+        return 0.5*torch.norm(lap @ x, p=2, dim=-1)
