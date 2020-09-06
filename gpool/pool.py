@@ -26,11 +26,10 @@ class _Pool(ABC, torch.nn.Module):
 
         self.cache = {True: None, False: None}
 
-        if isinstance(self.ordering, orderings.Ordering) and self.ordering.cacheable \
-                and cached is True or cached == 'both':
-            if cached == 'train':
+        if cached and isinstance(self.ordering, orderings.Ordering) and self.ordering.cacheable:
+            if cached == 'train' or cached == 'both':
                 self.cache[True] = {}
-            if cached == 'test':
+            if cached == 'test' or cached == 'both':
                 self.cache[False] = {}
 
         super(_Pool, self).__init__()
