@@ -12,8 +12,10 @@ class Ordering(ABC):
         self.descending = descending
 
     def __call__(self, x: torch.FloatTensor, adj: SparseTensor):
-        out = torch.argsort(self._compute(x, adj), 0, self.descending)
-        return out
+        perm = torch.argsort(self._compute(x, adj), 0, self.descending)
+        rank = torch.zeros_like(perm)
+        rank[perm] = torch.arange(rank.size(0), dtype=torch.long, device=rank.device)
+        return rank
 
     @abstractmethod
     def _compute(self, x: torch.FloatTensor, adj: SparseTensor):
