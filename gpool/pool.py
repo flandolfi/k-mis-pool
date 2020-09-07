@@ -3,7 +3,7 @@ from typing import Tuple
 
 import torch
 from torch_geometric.nn.conv import MessagePassing
-from torch_geometric.data import Batch
+from torch_geometric.data import Batch, Data
 from torch_sparse import SparseTensor
 
 from gpool import kernels, orderings, utils
@@ -12,6 +12,8 @@ from gpool import kernels, orderings, utils
 class _Pool(ABC, torch.nn.Module):
     def __init__(self, pool_size=1, stride=None, aggr='add', weighted_aggr=True,
                  ordering=None, order_on='raw', distances=False, kernel=None, cached=False):
+        super(_Pool, self).__init__()
+
         self.pool_size = pool_size
         self.stride = stride if stride else pool_size
         self.aggr = aggr
@@ -31,8 +33,6 @@ class _Pool(ABC, torch.nn.Module):
                 self.cache[True] = {}
             if cached == 'test' or cached == 'both':
                 self.cache[False] = {}
-
-        super(_Pool, self).__init__()
 
     @property
     def cached(self):
@@ -55,6 +55,9 @@ class _Pool(ABC, torch.nn.Module):
 
     @staticmethod
     def _get_ordering(ordering):
+        if ordering is None:
+            return None
+
         if callable(ordering):
             return ordering
 
@@ -71,7 +74,7 @@ class _Pool(ABC, torch.nn.Module):
         return getattr(orderings, ''.join(t.title() for t in tokens))(**opts)
 
 
-class MISPool(_Pool, MessagePassing):
+class MISPool(_Pool, MessagePassing):  # noqa
     def _is_same_data(self, data, cache):
         return data.edge_index.equal(cache['edge_index'])
 
@@ -122,13 +125,13 @@ class MISPool(_Pool, MessagePassing):
 
     def coarsen(self, adj, adj_s):
         if self.distances:
-            adj_out = utils.sparse_min_sum_mm(utils.sparse_min_sum_mm(adj_s.t(), adj), adj_s)
+            adj_out = utils.sparse_min_sum_mm(utils.sparse_min_sum_mm(adj_s, adj), adj_s.t())
         else:
-            adj_out = adj_s.t() @ adj @ adj_s
+            adj_out = adj_s @ adj @ adj_s.t()
 
         return adj_out
 
-    def forward(self, data: Batch):
+    def forward(self, data: Data):
         cache = self._maybe_cache(data, 'out', 'adj')
 
         if cache is not None:
@@ -137,7 +140,7 @@ class MISPool(_Pool, MessagePassing):
 
             return out
 
-        x, pos, batch, n = data.x, data.pos, data.batch, data.num_nodes
+        x, pos, n = data.x, data.pos, data.num_nodes
         adj = SparseTensor.from_edge_index(data.edge_index, data.edge_attr, (n, n), True)
 
         if self.distances:
@@ -161,12 +164,12 @@ class MISPool(_Pool, MessagePassing):
                 perm = self.ordering(x, adj_s)
 
         mask = utils.maximal_independent_set(adj_s, perm)
-        adj_p = adj_p[:, mask]
-        adj_s = adj_s[:, mask]
+        adj_p = adj_p[mask]
+        adj_s = adj_s[mask]
 
         x_out, pos_out = self.pool(x, adj_p, pos)
         r_out, c_out, v_out = self.coarsen(adj, adj_s).coo()
-        batch_out = None if batch is None else batch[mask]
+        batch_out = data['batch'][mask] if 'batch' in data else None
 
         out = Batch(x=x_out, pos=pos_out, edge_index=torch.stack((r_out, c_out)), edge_attr=v_out, batch=batch_out)
 
