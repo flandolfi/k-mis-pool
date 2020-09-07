@@ -67,23 +67,26 @@ def sparse_matrix_power(matrix: SparseTensor, p=2):
     return _mat_pow(matrix, p)
 
 
-def maximal_independent_set(adj: SparseTensor, perm=None):
+def maximal_independent_set(adj: SparseTensor, rank=None):
     row, col, _ = adj.clone().coo()
     n, device = adj.size(0), adj.device()
 
-    if perm is None:
-        perm = torch.arange(n, dtype=torch.long, device=device)
+    if rank is None:
+        rank = torch.arange(n, dtype=torch.long, device=device)
+
+    # Remove self-loops (should not be a problem if there are no ties)
+    edge_mask = row != col
+    row, col = row[edge_mask], col[edge_mask]
 
     mis = torch.zeros(n, dtype=torch.bool, device=device)
-    mask = mis.clone()
-    edge_mask = perm[row] > perm[col]
-    mask = torch.scatter_add(mask, 0, row, edge_mask)
+    excl = mis.clone()
+    edge_mask = rank[row] >= rank[col]
+    mask = ~torch.scatter_add(mis, 0, row, edge_mask)
 
-    while not mask.all():
-        mis |= ~mask
-        edge_mask = mask[row] | mask[col]
-        row, col = row[edge_mask], col[edge_mask]
-        edge_mask = perm[row] > perm[col]
-        mask = torch.scatter_add(torch.zeros_like(mask), 0, row, edge_mask)
+    while mask.any():
+        mis |= mask
+        excl = mis | torch.scatter_add(excl, 0, col, mis[row])
+        edge_mask = (rank[row] >= rank[col]) & ~excl[col]
+        mask = ~torch.scatter_add(excl, 0, row, edge_mask)
 
     return mis
