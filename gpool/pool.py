@@ -24,7 +24,7 @@ class _Pool(ABC, torch.nn.Module):
         self.kernel = kernel
 
         if isinstance(kernel, str):
-            self.kernel = getattr(kernels, kernel.title().replace('-', ''))
+            self.kernel = getattr(kernels, kernel.title().replace('-', ''))()
 
         self.cache = {True: None, False: None}
 
@@ -141,7 +141,12 @@ class MISPool(_Pool, MessagePassing):  # noqa
             return out
 
         x, pos, n = data.x, data.pos, data.num_nodes
-        adj = SparseTensor.from_edge_index(data.edge_index, data.edge_attr, (n, n), True)
+        (row, col), val = data.edge_index, data.edge_attr
+
+        if val is None:
+            val = torch.ones_like(row, dtype=torch.float)
+
+        adj = SparseTensor(row=row, col=col, value=val, sparse_sizes=(n, n), is_sorted=True)
 
         if self.distances:
             adj = adj.fill_diag(0.)
