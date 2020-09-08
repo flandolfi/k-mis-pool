@@ -13,7 +13,7 @@ from torch_geometric.nn.models import JumpingKnowledge
 from torch_geometric.nn.pool import TopKPooling, SAGPooling, EdgePooling, graclus
 from torch_geometric.nn.dense import dense_diff_pool
 
-from gpool.data import DenseDataset
+from benchmark.data import DenseDataset
 from gpool.pool import SparsePool, DensePool
 
 

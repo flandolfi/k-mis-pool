@@ -15,7 +15,7 @@ from skorch.dataset import Dataset
 
 from benchmark import model
 from gpool.utils import add_node_features
-from gpool.data import NDPDataset, CustomDataset
+from benchmark.data import NDPDataset, CustomDataset
 
 from sklearn.model_selection import StratifiedKFold, StratifiedShuffleSplit, ParameterGrid
 from sklearn.metrics import accuracy_score

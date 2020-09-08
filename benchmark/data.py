@@ -6,6 +6,7 @@ from torch.utils.data._utils.collate import default_collate
 
 from torch_geometric.data import Data, InMemoryDataset, Dataset, download_url
 from torch_geometric.transforms import ToDense
+from torch_geometric import utils
 
 
 class CustomDataset(InMemoryDataset):
@@ -145,3 +146,28 @@ class NDPDataset(InMemoryDataset):
 
         self.data, self.slices = self.collate(data_list)
         torch.save((self.data, self.slices), self.processed_paths[0])
+
+
+def add_node_features(dataset):
+    """Add degree features to a dataset.
+
+    Args:
+        dataset (torch_geometric.Dataset): A graph dataset.
+
+    Returns:
+        torch_geometric.Dataset: The same dataset, with `x` containing the
+            degree vector of the nodes.
+    """
+    max_degree = 0.
+    degrees = []
+    slices = [0]
+
+    for data in dataset:
+        degrees.append(utils.degree(data.edge_index[0], data.num_nodes, torch.float))
+        max_degree = max(max_degree, degrees[-1].max().item())
+        slices.append(data.num_nodes)
+
+    dataset.data.x = torch.cat(degrees, dim=0).div_(max_degree).view(-1, 1)
+    dataset.slices['x'] = torch.tensor(slices, dtype=torch.long, device=dataset.data.x.device).cumsum(0)
+
+    return dataset
