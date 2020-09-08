@@ -16,7 +16,8 @@ class _Pool(ABC, torch.nn.Module):
 
         self.pool_size = pool_size
         self.stride = stride if stride else pool_size
-        self.aggr = aggr
+        self.normalize = weighted_aggr and aggr == 'mean'
+        self.aggr = 'add' if self.normalize else aggr
         self.weighted_aggr = weighted_aggr
         self.ordering = self._get_ordering(ordering)
         self.order_on = order_on
@@ -85,7 +86,7 @@ class MISPool(_Pool, MessagePassing):  # noqa
 
         if p == s:
             adj_pow = utils.sparse_matrix_power(adj, p)
-            return adj_pow, adj_pow
+            return adj_pow, adj_pow.clone()
 
         adj_p, adj_s = MISPool._compute_paths(adj, p - s, s//2)
         adj_s @= adj_s
@@ -103,7 +104,7 @@ class MISPool(_Pool, MessagePassing):  # noqa
         dist_p = utils.pairwise_distances(adj, p)
 
         if p == s:
-            return dist_p, dist_p
+            return dist_p, dist_p.clone()
 
         row, col, val = dist_p.coo()
         mask = val <= s
@@ -112,18 +113,21 @@ class MISPool(_Pool, MessagePassing):  # noqa
 
         return dist_p, dist_s
 
-    def pool(self, x, adj, pos=None):
+    def pool(self, x: torch.Tensor, adj: SparseTensor, pos=None):
         if pos is not None:
             x = torch.cat([x, pos], dim=-1)
 
         x = self.propagate(edge_index=adj, x=x)
+
+        if self.normalize:
+            x /= adj.sum(-1).unsqueeze(-1)
 
         if pos is not None:
             return x[:, :-pos.size(-1)], x[:, -pos.size(-1):]
 
         return x, None
 
-    def coarsen(self, adj, adj_s):
+    def coarsen(self, adj: SparseTensor, adj_s: SparseTensor):
         if self.distances:
             adj_out = utils.sparse_min_sum_mm(utils.sparse_min_sum_mm(adj_s, adj), adj_s.t())
         else:
