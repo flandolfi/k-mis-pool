@@ -45,6 +45,6 @@ class Curvature(Ordering):
     def _compute(self, x: torch.FloatTensor, adj: SparseTensor):
         row, col, val = adj.coo()
         lap_idx, lap_val = get_laplacian(torch.stack((row, col)), val,
-                                         self.normalization, torch.float, adj.size(0))
+                                         self.normalization, num_nodes=adj.size(0))
         lap = SparseTensor.from_edge_index(lap_idx, lap_val, adj.sparse_sizes(), True)
         return 0.5*torch.norm(lap @ x, p=2, dim=-1)
