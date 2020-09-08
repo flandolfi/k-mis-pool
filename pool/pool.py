@@ -6,7 +6,7 @@ from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.data import Batch, Data
 from torch_sparse import SparseTensor
 
-from gpool import kernels, orderings, utils
+from pool import kernels, orderings, utils
 
 
 class _Pool(ABC, torch.nn.Module):
