@@ -31,7 +31,11 @@ def pairwise_distances(adj: SparseTensor, max_value=None):
         max_value = float("inf")
 
     dists = adj.fill_diag(0.)
-    old_v = adj.storage.value().clone()
+    r, c, v = dists.coo()
+    mask = v <= max_value
+    r, c, v = r[mask], c[mask], v[mask]
+    dists = SparseTensor(row=r, col=c, value=v)
+    old_v = v.clone()
 
     for _ in range(1, adj.size(0)):
         step = sparse_min_sum_mm(dists, adj)
