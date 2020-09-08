@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 __version__ = '0.0.1'
-url = 'https://github.com/flandolfi/graph-pooling'
+url = 'https://github.com/flandolfi/mis-pool'
 
 dependency_links = [
     'https://pytorch-geometric.com/whl/torch-1.6.0.html',
