@@ -1,5 +1,5 @@
-from pool import kernels, orderings, utils
-from pool.pool import MISPool
+from miss import kernels, orderings, utils
+from miss.pool import MISPool
 
 __all__ = [
     'kernels',
