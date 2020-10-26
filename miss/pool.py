@@ -75,20 +75,20 @@ class _Pool(ABC, torch.nn.Module):
         return getattr(orderings, ''.join(t.title() for t in tokens))(**opts)
 
 
-class MISPool(_Pool, MessagePassing):  # noqa
+class MISSPool(_Pool, MessagePassing):  # noqa
     def _is_same_data(self, data, cache):
         return data.edge_index.equal(cache['edge_index'])
 
     @staticmethod
     def _compute_paths(adj: SparseTensor, p: int, s: int) -> Tuple[SparseTensor, SparseTensor]:
         if p < s:
-            return MISPool._compute_paths(adj, s, p)[::-1]
+            return MISSPool._compute_paths(adj, s, p)[::-1]
 
         if p == s:
             adj_pow = utils.sparse_matrix_power(adj, p)
             return adj_pow, adj_pow.clone()
 
-        adj_p, adj_s = MISPool._compute_paths(adj, p - s, s//2)
+        adj_p, adj_s = MISSPool._compute_paths(adj, p - s, s // 2)
         adj_s @= adj_s
 
         if s % 2 == 1:
@@ -99,7 +99,7 @@ class MISPool(_Pool, MessagePassing):  # noqa
     @staticmethod
     def _compute_distances(adj: SparseTensor, p: float, s: float) -> Tuple[SparseTensor, SparseTensor]:
         if p < s:
-            return MISPool._compute_distances(adj, s, p)[::-1]
+            return MISSPool._compute_distances(adj, s, p)[::-1]
 
         dist_p = utils.pairwise_distances(adj, p)
 

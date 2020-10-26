@@ -1,9 +1,9 @@
 from miss import kernels, orderings, utils
-from miss.pool import MISPool
+from miss.pool import MISSPool
 
 __all__ = [
     'kernels',
     'orderings',
     'utils',
-    'MISPool'
+    'MISSPool'
 ]
