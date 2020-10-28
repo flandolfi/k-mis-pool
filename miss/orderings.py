@@ -37,6 +37,22 @@ class Degree(Ordering):
         return adj.sum(1).view(-1)
 
 
+class KPath(Ordering):
+    cacheable = True
+
+    def __init__(self, k=1, descending=True):
+        super(KPath, self).__init__(descending)
+        self.k = k
+
+    def _compute(self, x: torch.FloatTensor, adj: SparseTensor):
+        k_paths = torch.ones((adj.size(1), 1), dtype=torch.float, device=adj.device())
+
+        for _ in range(self.k):
+            k_paths = adj @ k_paths
+
+        return k_paths.view(-1)
+
+
 class Curvature(Ordering):
     def __init__(self, descending=True, normalization=None):
         super(Curvature, self).__init__(descending)
@@ -46,5 +62,5 @@ class Curvature(Ordering):
         row, col, val = adj.coo()
         lap_idx, lap_val = get_laplacian(torch.stack((row, col)), val,
                                          self.normalization, num_nodes=adj.size(0))
-        lap = SparseTensor.from_edge_index(lap_idx, lap_val, adj.sparse_sizes(), True)
+        lap = SparseTensor.from_edge_index(lap_idx, lap_val, adj.sparse_sizes())
         return 0.5*torch.norm(lap @ x, p=2, dim=-1)
