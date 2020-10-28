@@ -119,9 +119,6 @@ class MISSPool(_Pool, MessagePassing):  # noqa
 
         x = self.propagate(edge_index=adj, x=x)
 
-        if self.normalize:
-            x /= adj.sum(-1).unsqueeze(-1)
-
         if pos is not None:
             return x[:, :-pos.size(-1)], x[:, -pos.size(-1):]
 
@@ -155,12 +152,21 @@ class MISSPool(_Pool, MessagePassing):  # noqa
         if self.distances:
             adj = adj.fill_diag(0.)
             adj_p, adj_s = self._compute_distances(adj, self.pool_size, self.stride)
+
+            if self.kernel is not None:
+                adj_p = adj_p.set_value(self.kernel(adj_p.storage.value()))
+
+            if self.normalize:
+                deg = adj_p.sum(-1).unsqueeze(-1)
+                adj_p *= torch.where(deg == 0, torch.zeros_like(deg), 1. / deg)
         else:
             adj = adj.fill_diag(1.)
-            adj_p, adj_s = self._compute_paths(adj, self.pool_size, self.stride)
 
-        if self.kernel is not None:
-            adj_p = adj_p.set_value(self.kernel(adj_p.storage.value()))
+            if self.normalize:
+                deg = adj.sum(-1).unsqueeze(-1)
+                adj *= torch.where(deg == 0, torch.zeros_like(deg), 1. / deg)
+
+            adj_p, adj_s = self._compute_paths(adj, self.pool_size, self.stride)
 
         perm = None
 
