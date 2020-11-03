@@ -63,7 +63,8 @@ class PointNet(nn.Module):
             data.x = conv_l(data.x, data.pos, data.edge_index)
             data = pool_l(data)
 
-        out = glob.global_max_pool(data.x, data.batch, data.num_graphs)
+        out = self.conv[-1](data.x, data.pos, data.edge_index)
+        out = glob.global_max_pool(out, data.batch, data.num_graphs)
         out = self.mlp(out)
 
         return out
