@@ -1,14 +1,5 @@
-from tqdm import tqdm
 from datetime import timedelta, datetime
 from skorch.callbacks import Callback
-
-
-class TQDMCallback(Callback):
-    def __init__(self, progress_bar: tqdm):
-        self.progress_bar = progress_bar
-
-    def on_train_end(self, **kwargs):
-        self.progress_bar.update()
 
 
 class LateStopping(Callback):
@@ -17,10 +8,10 @@ class LateStopping(Callback):
         self.sink = sink
         self.start = None
 
-    def on_train_begin(self, **kwargs):
+    def on_train_begin(self, *args, **kwargs):
         self.start = datetime.now()
 
-    def on_epoch_end(self, net, **kwargs):
+    def on_epoch_end(self, *args, **kwargs):
         delta = datetime.now() - self.start
 
         if delta > self.timedelta:
@@ -38,13 +29,14 @@ class LRLowerBound(Callback):
         self.sink = sink
         self.event_name = event_name
 
-    def on_epoch_begin(self, net, **kwargs):
-        lr = net.history[:, self.event_name][-1]
+    def on_epoch_begin(self, net, *args, **kwargs):
+        if self.event_name in net.history[-1]:
+            lr = net.history[:, self.event_name][-1]
 
-        if lr < self.min_lr:
-            self._sink(f"Stopping training after reaching LR lower-bound: "
-                       f"{lr} < {self.min_lr}.", net.verbose)
-            raise KeyboardInterrupt
+            if lr < self.min_lr:
+                self._sink(f"Stopping training after reaching LR lower-bound: "
+                           f"{lr} < {self.min_lr}.", net.verbose)
+                raise KeyboardInterrupt
 
     def _sink(self, text, verbose):
         if (self.sink is not print) or verbose:

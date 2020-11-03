@@ -70,6 +70,6 @@ def merge_datasets(*datasets):
         Ys.append(ds.data.y.numpy())
         n += len(ds)
 
-    return (CustomDataset(sum(map(list, datasets))),
+    return (CustomDataset(sum(map(list, datasets), start=[])),
             *(Dataset(X, y) for X, y in zip(Xs, Ys)))
 

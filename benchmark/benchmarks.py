@@ -10,12 +10,11 @@ import torch
 from torch.nn.modules.loss import SmoothL1Loss, CrossEntropyLoss
 
 from skorch import NeuralNetClassifier, NeuralNetRegressor
-from skorch.callbacks import EpochScoring, LRScheduler
+from skorch.callbacks import EpochScoring, LRScheduler, ProgressBar
 from skorch.helper import predefined_split
-from skorch.helper import parse_args
 
 from benchmark import models
-from benchmark.callbacks import LateStopping, LRLowerBound, TQDMCallback
+from benchmark.callbacks import LateStopping, LRLowerBound
 from benchmark.datasets import get_dataset, merge_datasets
 
 from sklearn.model_selection import GridSearchCV
@@ -38,6 +37,7 @@ DEFAULT_NET_PARAMS = {
     'max_epochs': 999999999,
     'verbose': 1,
     'lr': 0.001,
+    'batch_size': -1,
     'callbacks__late_stopping__hours': 12,
     'callbacks__lr_scheduler__policy': 'ReduceLROnPlateau',
     'callbacks__lr_scheduler__monitor': 'valid_loss',
@@ -49,13 +49,13 @@ DEFAULT_NET_PARAMS = {
 }
 
 DEFAULT_GRID_PARAMS = [{
-        'weighted_aggr': [True],
-        'aggr': ['mean'],
-        'pool_size': [1, 2]
+        'module__weighted_aggr': [True],
+        'module__aggr': ['mean'],
+        'module__pool_size': [1, 2]
     }, {
-        'weighted_aggr': [False],
-        'aggr': ['mean', 'add', 'max'],
-        'pool_size': [1, 2]
+        'module__weighted_aggr': [False],
+        'module__aggr': ['mean', 'add', 'max'],
+        'module__pool_size': [1, 2]
 }]
 
 
@@ -89,12 +89,12 @@ def get_net(name, dataset, **net_kwargs):
         score_name = 'valid_acc'
 
     net_cls.score = get_scorer(score_name)
-    parsed = parse_args(net_kwargs, defaults=DEFAULT_NET_PARAMS)
-    net = parsed(net_cls(
+    net = net_cls(
         module=module,
         module__dataset=dataset,
         criterion=criterion,
-    ))
+        **net_kwargs
+    )
 
     return net
 
@@ -112,28 +112,33 @@ def grid_search(model_name: str, dataset_name: str,
 
     total = sum([math.prod(map(len, grid.values())) for grid in param_grid])
     pbar = tqdm(total=total*repetitions, leave=False, desc='Grid Search')
-    dataset, tr_split, val_split, _ = merge_datasets(get_dataset(dataset_name, root))
+    dataset, tr_split, val_split, _ = merge_datasets(*get_dataset(dataset_name, root))
 
-    net_kwargs.update({
-        'train_split': predefined_split(val_split),
+    opts = dict(DEFAULT_NET_PARAMS)
+    opts.update({
+        # 'train_split': predefined_split(val_split),
         'callbacks': [
-                         ('tqdm', TQDMCallback),
+                         ('progress_bar', ProgressBar),
                          ('late_stopping', LateStopping),
                          ('lr_scheduler', LRScheduler),
                          ('lr_lower_bound', LRLowerBound)
-                     ] + net_kwargs["callbacks"],
-        'callbacks__tqdm__progress_bar': pbar,
+                     ],
         'callbacks__print_log__sink': pbar.write,
         'callbacks__late_stopping__sink': pbar.write,
-        'callbacks__lr_scheduler__sink': pbar.write,
         'callbacks__lr_lower_bound__sink': pbar.write,
     })
+    opts.update(net_kwargs)
 
-    net = get_net(model_name, dataset, **net_kwargs)
+    def _cv_iter():
+        for _ in range(repetitions):
+            yield tr_split.X, val_split.X
+            pbar.update()
+
+    net = get_net(model_name, dataset, **opts)
     gs = GridSearchCV(net, param_grid,
                       scoring=None,
                       refit=False,
-                      cv=iter([(tr_split.X, None) for _ in range(repetitions)]))
+                      cv=_cv_iter())
     gs.fit(np.arange(len(dataset)), dataset.data.y.numpy())
     pbar.close()
 
@@ -145,4 +150,6 @@ def grid_search(model_name: str, dataset_name: str,
 
 
 if __name__ == "__main__":
-    fire.Fire(grid_search)
+    fire.Fire({
+        'grid_search': grid_search
+    })

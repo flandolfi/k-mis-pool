@@ -9,6 +9,8 @@ from miss import MISSPool
 class PointNet(nn.Module):
     def __init__(self, dataset: Dataset, *pool_args, **pool_kwargs):
         super(PointNet, self).__init__()
+
+        self.dataset = dataset
         pos = dataset[0].pos
         pos_dim = 0 if pos is None else pos.size(1)
         x_dim = dataset.num_node_features
@@ -19,7 +21,7 @@ class PointNet(nn.Module):
 
             for idx, (u_in, u_out) in enumerate(zip(units[:-1], units[1:])):
                 mlp.add_module(f"relu_{idx}", nn.ReLU())
-                mlp.add_module(f"lin_{idx+1}", nn.Linear(u_in + pos_dim, u_out))
+                mlp.add_module(f"lin_{idx+1}", nn.Linear(u_in, u_out))
 
             return mlp
 
@@ -54,7 +56,9 @@ class PointNet(nn.Module):
             nn.Linear(256, dataset.num_classes)
         )
 
-    def forward(self, data: Batch):
+    def forward(self, index):
+        data = Batch.from_data_list(self.dataset[index]).to(index.device)
+
         for conv_l, pool_l in zip(self.conv, self.pool):
             data.x = conv_l(data.x, data.pos, data.edge_index)
             data = pool_l(data)

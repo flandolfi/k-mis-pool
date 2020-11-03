@@ -11,7 +11,7 @@ networkx
 numpy
 pandas
 scikit-learn
-skorch==0.8.0
+skorch
 tqdm
 fire
 numpydoc
