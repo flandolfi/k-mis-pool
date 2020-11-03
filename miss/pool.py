@@ -114,15 +114,12 @@ class MISSPool(_Pool, MessagePassing):  # noqa
         return dist_p, dist_s
 
     def pool(self, x: torch.Tensor, adj: SparseTensor, pos=None):
-        if pos is not None:
-            x = torch.cat([x, pos], dim=-1)
-
         x = self.propagate(edge_index=adj, x=x)
 
-        if pos is not None:
-            return x[:, :-pos.size(-1)], x[:, -pos.size(-1):]
+        if pos is None:
+            return x, None
 
-        return x, None
+        return x, self.propagate(edge_index=adj, x=pos)
 
     def coarsen(self, adj: SparseTensor, adj_s: SparseTensor):
         if self.distances:
@@ -147,7 +144,7 @@ class MISSPool(_Pool, MessagePassing):  # noqa
         if val is None:
             val = torch.ones_like(row, dtype=torch.float)
 
-        adj = SparseTensor(row=row, col=col, value=val, sparse_sizes=(n, n), is_sorted=True)
+        adj = SparseTensor(row=row, col=col, value=val, sparse_sizes=(n, n))
 
         if self.distances:
             adj = adj.fill_diag(0.)
