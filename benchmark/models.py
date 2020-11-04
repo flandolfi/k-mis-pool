@@ -40,17 +40,14 @@ class PointNet(nn.Module):
         ])
 
         self.mlp = nn.Sequential(
-            nn.BatchNorm1d(1024),
             nn.ReLU(),
 
-            nn.Dropout(0.5),
             nn.Linear(1024, 512),
-            nn.BatchNorm1d(512),
+            nn.Dropout(0.5),
             nn.ReLU(),
 
-            nn.Dropout(0.5),
             nn.Linear(512, 256),
-            nn.BatchNorm1d(256),
+            nn.Dropout(0.5),
             nn.ReLU(),
 
             nn.Linear(256, dataset.num_classes)
