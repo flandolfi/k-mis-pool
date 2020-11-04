@@ -11,7 +11,6 @@ from torch.nn.modules.loss import SmoothL1Loss, CrossEntropyLoss
 
 from skorch import NeuralNetClassifier, NeuralNetRegressor
 from skorch.callbacks import EpochScoring, LRScheduler, ProgressBar
-from skorch.helper import predefined_split
 
 from benchmark import models
 from benchmark.callbacks import LateStopping, LRLowerBound
@@ -116,7 +115,6 @@ def grid_search(model_name: str, dataset_name: str,
 
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update({
-        # 'train_split': predefined_split(val_split),
         'callbacks': [
                          ('progress_bar', ProgressBar),
                          ('late_stopping', LateStopping),
