@@ -1,5 +1,27 @@
 import torch
+from torch_geometric.typing import Optional
 from torch_sparse import SparseTensor
+from torch_scatter import segment_coo
+
+
+@torch.jit.script
+def scatter_and(src: torch.Tensor, index: torch.Tensor,
+                out: Optional[torch.Tensor] = None,
+                dim_size: Optional[int] = None) -> torch.Tensor:
+    if out is not None:
+        out = out.to(torch.uint8)
+
+    return segment_coo(src.to(torch.uint8), index, out, dim_size, "min").to(torch.bool)
+
+
+@torch.jit.script
+def scatter_or(src: torch.Tensor, index: torch.Tensor,
+               out: Optional[torch.Tensor] = None,
+               dim_size: Optional[int] = None) -> torch.Tensor:
+    if out is not None:
+        out = out.to(torch.uint8)
+
+    return segment_coo(src.to(torch.uint8), index, out, dim_size, "max").to(torch.bool)
 
 
 def sparse_min_sum_mm(lhs: SparseTensor, rhs: SparseTensor):
@@ -52,11 +74,11 @@ def pairwise_distances(adj: SparseTensor, max_value=None):
     return dists
 
 
-def sparse_matrix_power(matrix: SparseTensor, p=2):
+def sparse_matrix_power(matrix: SparseTensor, p: int = 2) -> SparseTensor:
     if p == 0:
         return SparseTensor.eye(matrix.size(0), matrix.size(1))
 
-    def _mat_pow(m: SparseTensor, k):
+    def _mat_pow(m: SparseTensor, k: int) -> SparseTensor:
         if k == 1:
             return m.clone()
 
@@ -71,7 +93,8 @@ def sparse_matrix_power(matrix: SparseTensor, p=2):
     return _mat_pow(matrix, p)
 
 
-def maximal_independent_set(adj: SparseTensor, rank=None):
+@torch.jit.script
+def maximal_independent_set(adj: SparseTensor, rank: Optional[torch.Tensor] = None) -> torch.Tensor:
     row, col, _ = adj.clone().coo()
     n, device = adj.size(0), adj.device()
 
@@ -79,18 +102,17 @@ def maximal_independent_set(adj: SparseTensor, rank=None):
         rank = torch.arange(n, dtype=torch.long, device=device)
 
     # Remove self-loops (should not be a problem if there are no ties)
-    edge_mask = row != col
+    edge_mask = ~torch.eq(row, col)
     row, col = row[edge_mask], col[edge_mask]
 
     mis = torch.zeros(n, dtype=torch.bool, device=device)
-    excl = mis.clone()
-    edge_mask = rank[row] >= rank[col]
-    mask = ~torch.scatter_add(mis, 0, row, edge_mask)
+    edge_mask = torch.lt(rank[row], rank[col])
+    mask = scatter_and(edge_mask, row, out=torch.ones_like(mis))
 
     while mask.any():
-        mis |= mask
-        excl = mis | torch.scatter_add(excl, 0, col, mis[row])
-        edge_mask = (rank[row] >= rank[col]) & ~excl[col]
-        mask = ~torch.scatter_add(excl, 0, row, edge_mask)
+        mis = mis | mask
+        excl = mis | scatter_or(mis[row], col, out=torch.zeros_like(mis))
+        edge_mask = torch.lt(rank[row], rank[col]) | excl[col]
+        mask = scatter_and(edge_mask, row, out=~excl)
 
     return mis
