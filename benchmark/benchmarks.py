@@ -43,7 +43,6 @@ DEFAULT_NET_PARAMS = {
     'callbacks__lr_scheduler__verbose': True,
     'callbacks__lr_scheduler__factor': 0.5,
     'callbacks__lr_scheduler__patience': 10,
-    'callbacks__lr_scheduler__event_name': 'lr',
     'callbacks__lr_lower_bound__min_lr': 1e-5,
     'iterator_train__drop_last': True,
     'iterator_train__shuffle': True,

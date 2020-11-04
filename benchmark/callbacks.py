@@ -24,19 +24,18 @@ class LateStopping(Callback):
 
 
 class LRLowerBound(Callback):
-    def __init__(self, min_lr=1e-6, event_name='event_lr', sink=print):
+    def __init__(self, min_lr=1e-6, sink=print):
         self.min_lr = min_lr
         self.sink = sink
-        self.event_name = event_name
 
-    def on_epoch_begin(self, net, *args, **kwargs):
-        if self.event_name in net.history[-1]:
-            lr = net.history[:, self.event_name][-1]
+    def on_epoch_end(self, net, *args, **kwargs):
+        lr = net.optimizer_.param_groups[0]['lr']
+        net.history.log('lr', lr)
 
-            if lr < self.min_lr:
-                self._sink(f"Stopping training after reaching LR lower-bound: "
-                           f"{lr} < {self.min_lr}.", net.verbose)
-                raise KeyboardInterrupt
+        if lr < self.min_lr:
+            self._sink(f"Stopping training after reaching LR lower-bound: "
+                       f"{lr} < {self.min_lr}.", net.verbose)
+            raise KeyboardInterrupt
 
     def _sink(self, text, verbose):
         if (self.sink is not print) or verbose:
