@@ -133,15 +133,15 @@ def grid_search(model_name: str, dataset_name: str,
         for _ in range(repetitions):
             yield train_idx, val_idx
 
-    def _score_wrapper(estimator):
-        def scorer(net, X, y=None):
+    def _score_wrapper():
+        def scorer(estimator, X, y=None):
             pbar.update()
-            return estimator.score(net, X, y)
+            return estimator.score(X, y)
 
         return scorer
 
     gs = GridSearchCV(net, param_grid,
-                      scoring=_score_wrapper(net),
+                      scoring=_score_wrapper(),
                       refit=False,
                       verbose=False,
                       cv=_cv_iter(tr_split.X, val_split.X))
