@@ -102,7 +102,7 @@ def get_net(name, dataset, **net_kwargs):
 def grid_search(model_name: str, dataset_name: str,
                 param_grid: Union[list, dict] = None,
                 root: str = './data/',
-                repetitions: int = 3,
+                repetitions: int = 1,
                 cv_results_path: str = None,
                 **net_kwargs):
     if param_grid is None:
