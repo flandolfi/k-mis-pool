@@ -1,3 +1,5 @@
+import os.path as osp
+
 import torch
 import numpy as np
 
@@ -44,8 +46,8 @@ def get_dataset(name='MNIST', root='data/'):
                 for split in ['train', 'val', 'test'])
 
     if name.startswith('ModelNet'):
-        train = ModelNet(root, name=name[8:], train=True, pre_transform=FaceToEdge())
-        test = ModelNet(root, name=name[8:], train=False, pre_transform=FaceToEdge())
+        train = ModelNet(osp.join(root, name), name=name[8:], train=True, pre_transform=FaceToEdge())
+        test = ModelNet(osp.join(root, name), name=name[8:], train=False, pre_transform=FaceToEdge())
 
         sss = StratifiedShuffleSplit(n_splits=1, test_size=0.1, random_state=42)
         y = train.data.y.numpy()
