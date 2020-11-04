@@ -52,8 +52,8 @@ def get_dataset(name='MNIST', root='data/'):
         x = np.zeros_like(y)
         tr_idx, val_idx = next(sss.split(x, y))
 
-        val = train[list(val_idx)]
-        train = train[list(tr_idx)]
+        val = CustomDataset([train[i] for i in val_idx])
+        train = CustomDataset([train[i] for i in tr_idx])
 
         return train, val, test
 
