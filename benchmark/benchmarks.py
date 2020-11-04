@@ -43,7 +43,7 @@ DEFAULT_NET_PARAMS = {
     'callbacks__lr_scheduler__verbose': False,
     'callbacks__lr_scheduler__factor': 0.5,
     'callbacks__lr_scheduler__patience': 10,
-    'callbacks__lr_lower_bound__min_lr': 1e-5,
+    'callbacks__lr_lower_bound__min_lr': 1e-6,
     'callbacks__print_log__floatfmt': '.5f',
     'iterator_train__drop_last': True,
     'iterator_train__shuffle': True,
@@ -103,7 +103,7 @@ def get_net(name, dataset, **net_kwargs):
 def grid_search(model_name: str, dataset_name: str,
                 param_grid: Union[list, dict] = None,
                 root: str = './data/',
-                repetitions: int = 1,
+                repetitions: int = 3,
                 cv_results_path: str = None,
                 **net_kwargs):
     if param_grid is None:
