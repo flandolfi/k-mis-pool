@@ -30,7 +30,7 @@ class LRLowerBound(Callback):
 
     def on_epoch_end(self, net, *args, **kwargs):
         lr = net.optimizer_.param_groups[0]['lr']
-        net.history.log('lr', lr)
+        net.history.record('lr', lr)
 
         if lr < self.min_lr:
             self._sink(f"Stopping training after reaching LR lower-bound: "
