@@ -1,27 +1,27 @@
 import torch
 from torch_geometric.typing import Optional
 from torch_sparse import SparseTensor
-from torch_scatter import segment_coo
+from torch_scatter import scatter
 
 
 @torch.jit.script
 def scatter_and(src: torch.Tensor, index: torch.Tensor,
-                out: Optional[torch.Tensor] = None,
+                dim: int = -1, out: Optional[torch.Tensor] = None,
                 dim_size: Optional[int] = None) -> torch.Tensor:
     if out is not None:
         out = out.to(torch.uint8)
 
-    return segment_coo(src.to(torch.uint8), index, out, dim_size, "min").to(torch.bool)
+    return scatter(src.to(torch.uint8), index, dim, out, dim_size, "min").to(torch.bool)
 
 
 @torch.jit.script
 def scatter_or(src: torch.Tensor, index: torch.Tensor,
-               out: Optional[torch.Tensor] = None,
+               dim: int = -1, out: Optional[torch.Tensor] = None,
                dim_size: Optional[int] = None) -> torch.Tensor:
     if out is not None:
         out = out.to(torch.uint8)
 
-    return segment_coo(src.to(torch.uint8), index, out, dim_size, "max").to(torch.bool)
+    return scatter(src.to(torch.uint8), index, dim, out, dim_size, "max").to(torch.bool)
 
 
 def sparse_min_sum_mm(lhs: SparseTensor, rhs: SparseTensor):
