@@ -40,9 +40,10 @@ DEFAULT_NET_PARAMS = {
     'callbacks__late_stopping__hours': 12,
     'callbacks__lr_scheduler__policy': 'ReduceLROnPlateau',
     'callbacks__lr_scheduler__monitor': 'valid_loss',
+    'callbacks__lr_scheduler__verbose': True,
     'callbacks__lr_scheduler__factor': 0.5,
     'callbacks__lr_scheduler__patience': 10,
-    'callbacks__lr_lower_bound__min_lr': 1e-6,
+    'callbacks__lr_lower_bound__min_lr': 1e-5,
     'iterator_train__drop_last': True,
     'iterator_train__shuffle': True,
 }
@@ -126,16 +127,17 @@ def grid_search(model_name: str, dataset_name: str,
         'callbacks__lr_lower_bound__sink': pbar.write,
     })
     opts.update(net_kwargs)
+    net = get_net(model_name, dataset, **opts)
 
     def _cv_iter():
         for _ in range(repetitions):
             yield tr_split.X, val_split.X
             pbar.update()
 
-    net = get_net(model_name, dataset, **opts)
     gs = GridSearchCV(net, param_grid,
                       scoring=None,
                       refit=False,
+                      verbose=False,
                       cv=_cv_iter())
     gs.fit(np.arange(len(dataset)), dataset.data.y.numpy())
     pbar.close()
