@@ -42,7 +42,7 @@ DEFAULT_NET_PARAMS = {
     'callbacks__lr_scheduler__monitor': 'valid_loss',
     'callbacks__lr_scheduler__verbose': False,
     'callbacks__lr_scheduler__factor': 0.5,
-    'callbacks__lr_scheduler__patience': 10,
+    'callbacks__lr_scheduler__patience': 25,
     'callbacks__lr_lower_bound__min_lr': 1e-6,
     'callbacks__print_log__floatfmt': '.6f',
     'iterator_train__drop_last': True,

@@ -95,12 +95,12 @@ class GCN(nn.Module):
             nn.BatchNorm1d(hidden),
             nn.ReLU(),
 
-            nn.Dropout(0.5),
+            # nn.Dropout(0.5),
             nn.Linear(hidden, hidden//2),
             nn.BatchNorm1d(hidden//2),
             nn.ReLU(),
 
-            nn.Dropout(0.5),
+            # nn.Dropout(0.5),
             nn.Linear(hidden//2, hidden//4),
             nn.BatchNorm1d(hidden//4),
             nn.ReLU(),
@@ -122,7 +122,7 @@ class GCN(nn.Module):
             data.x = F.relu(data.x)
 
         out = self.conv[-1](data.x, data.edge_index, data.edge_attr)
-        out = glob.global_add_pool(out, data.batch, data.num_graphs)
+        out = glob.global_mean_pool(out, data.batch, data.num_graphs)
         out = self.lin_out(out)
 
         return out
