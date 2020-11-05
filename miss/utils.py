@@ -4,7 +4,6 @@ from torch_sparse import SparseTensor
 from torch_scatter import scatter
 
 
-@torch.jit.script
 def scatter_and(src: torch.Tensor, index: torch.Tensor,
                 dim: int = -1, out: Optional[torch.Tensor] = None,
                 dim_size: Optional[int] = None) -> torch.Tensor:
@@ -14,7 +13,6 @@ def scatter_and(src: torch.Tensor, index: torch.Tensor,
     return scatter(src.to(torch.uint8), index, dim, out, dim_size, "min").to(torch.bool)
 
 
-@torch.jit.script
 def scatter_or(src: torch.Tensor, index: torch.Tensor,
                dim: int = -1, out: Optional[torch.Tensor] = None,
                dim_size: Optional[int] = None) -> torch.Tensor:
@@ -93,7 +91,6 @@ def sparse_matrix_power(matrix: SparseTensor, p: int = 2) -> SparseTensor:
     return _mat_pow(matrix, p)
 
 
-@torch.jit.script
 def maximal_independent_set(adj: SparseTensor, rank: Optional[torch.Tensor] = None) -> torch.Tensor:
     row, col, _ = adj.clone().coo()
     n, device = adj.size(0), adj.device()
