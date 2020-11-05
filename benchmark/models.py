@@ -9,14 +9,10 @@ from miss import MISSPool
 
 
 class PointNet(nn.Module):
-    def __init__(self, dataset: Dataset, hidden=64, dropout=0.5, reduce_input=False, **pool_kwargs):
+    def __init__(self, dataset: Dataset, hidden=64, dropout=0.5, **pool_kwargs):
         super(PointNet, self).__init__()
 
         self.dataset = dataset
-        self.reduce_input = reduce_input
-
-        if reduce_input:
-            self.pool_in = MISSPool(ordering="random", aggr="mean", weighted_aggr=False)
 
         pos = dataset[0].pos
         pos_dim = 0 if pos is None else pos.size(1)
@@ -64,9 +60,6 @@ class PointNet(nn.Module):
         )
 
     def forward(self, data):
-        if self.reduce_input:
-            data = self.pool_in(data)
-
         for conv_l, pool_l in zip(self.conv, self.pool):
             data.x = conv_l(data.x, data.pos, data.edge_index)
             data = pool_l(data)
