@@ -13,13 +13,13 @@ from torch_geometric.data import DataLoader, Data
 
 import skorch
 from skorch import NeuralNetClassifier, NeuralNetRegressor
-from skorch.callbacks import EpochScoring, LRScheduler, ProgressBar
+from skorch.callbacks import EpochScoring, LRScheduler, ProgressBar, Checkpoint
 
 from benchmark import models
 from benchmark.callbacks import LateStopping, LRLowerBound
-from benchmark.datasets import get_dataset, merge_datasets, SkorchDataset
+from benchmark.datasets import get_dataset, merge_datasets, SkorchDataset, add_miss_transform
 
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import GridSearchCV, cross_validate
 
 
 def _to_tensor_wrapper(func):
@@ -120,10 +120,16 @@ def get_net(name, module__dataset, **net_kwargs):
     return net
 
 
+def cv_iter(train_idx, val_idx, repetitions=3):
+    for _ in range(repetitions):
+        yield train_idx, val_idx
+
+
 def grid_search(model_name: str, dataset_name: str,
                 param_grid: Union[list, dict] = None,
                 root: str = './data/',
                 repetitions: int = 3,
+                reduce_input: bool = False,
                 cv_results_path: str = None,
                 **net_kwargs):
     if param_grid is None:
@@ -134,6 +140,9 @@ def grid_search(model_name: str, dataset_name: str,
     total = sum([math.prod(map(len, grid.values())) for grid in param_grid])
     pbar = tqdm(total=total*repetitions, leave=False, desc='Grid Search')
     dataset, tr_split, val_split, _ = merge_datasets(*get_dataset(dataset_name, root))
+
+    if reduce_input:
+        dataset = add_miss_transform(dataset)
 
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update({
@@ -150,10 +159,6 @@ def grid_search(model_name: str, dataset_name: str,
     opts.update(net_kwargs)
     net = get_net(model_name, dataset, **opts)
 
-    def _cv_iter(train_idx, val_idx):
-        for _ in range(repetitions):
-            yield train_idx, val_idx
-
     def _score_wrapper():
         def scorer(estimator, X, y=None):
             pbar.update()
@@ -165,7 +170,9 @@ def grid_search(model_name: str, dataset_name: str,
                       scoring=_score_wrapper(),
                       refit=False,
                       verbose=False,
-                      cv=_cv_iter(tr_split.X.tolist(), val_split.X.tolist()))
+                      cv=cv_iter(tr_split.X.tolist(),
+                                 val_split.X.tolist(),
+                                 repetitions))
     gs.fit(dataset, dataset.data.y)
     pbar.close()
 
@@ -185,8 +192,63 @@ def count_params(model_name: str, dataset_name: str,
     return sum(p.numel() for p in net.module_.parameters() if p.requires_grad)
 
 
+def cv(model_name: str, dataset_name: str,
+       root: str = './data/',
+       repetitions: int = 3,
+       reduce_input: bool = False,
+       cv_results_path: str = None,
+       **net_kwargs):
+    dataset, tr_split, val_split, test_idx = merge_datasets(*get_dataset(dataset_name, root))
+
+    if reduce_input:
+        dataset = add_miss_transform(dataset)
+
+    opts = dict(DEFAULT_NET_PARAMS)
+    opts.update({
+        'callbacks': [
+            ('progress_bar', ProgressBar),
+            ('checkpoint', Checkpoint),
+            ('late_stopping', LateStopping),
+            ('lr_scheduler', LRScheduler),
+            ('lr_lower_bound', LRLowerBound),
+        ],
+        'callbacks__checkpoint__monitor': 'valid_acc',
+        'callbacks__checkpoint__f_params': 'params.pt',
+        'callbacks__checkpoint__f_optimizer': None,
+        'callbacks__checkpoint__f_criterion': None,
+        'callbacks__checkpoint__f_history': None,
+        'callbacks__checkpoint__f_pickle': None,
+    })
+    opts.update(net_kwargs)
+    net = get_net(model_name, dataset, **opts)
+
+    def _score_wrapper():
+        test_X = dataset[test_idx]
+        test_y = dataset.data.y[test_idx]
+
+        def scorer(estimator, X, y=None):
+            estimator.load_params('params.pt')
+            return estimator.score(test_X, test_y)
+
+        return scorer
+
+    scores = cross_validate(net, dataset, dataset.data.y,
+                            scoring=_score_wrapper(),
+                            return_train_score=True,
+                            cv=cv_iter(tr_split.X.tolist(),
+                                       val_split.X.tolist(),
+                                       repetitions))
+
+    if cv_results_path is not None:
+        df = pd.DataFrame.from_records(scores)
+        df.to_csv(cv_results_path, sep='\t')
+
+    return scores
+
+
 if __name__ == "__main__":
     fire.Fire({
         'grid_search': grid_search,
-        'count_params': count_params
+        'count_params': count_params,
+        'cv': cv
     })
