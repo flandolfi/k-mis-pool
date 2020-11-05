@@ -1,4 +1,6 @@
+import torch
 from torch import nn
+from torch.nn import functional as F
 
 from torch_geometric.data import Batch, Dataset
 from torch_geometric.nn import conv, glob
@@ -7,7 +9,7 @@ from miss import MISSPool
 
 
 class PointNet(nn.Module):
-    def __init__(self, dataset: Dataset, *pool_args, **pool_kwargs):
+    def __init__(self, dataset: Dataset, **pool_kwargs):
         super(PointNet, self).__init__()
 
         self.dataset = dataset
@@ -35,22 +37,22 @@ class PointNet(nn.Module):
         ])
 
         self.pool = nn.ModuleList([
-            MISSPool(*pool_args, **pool_kwargs),
-            MISSPool(*pool_args, **pool_kwargs)
+            MISSPool(add_self_loops=True, **pool_kwargs),
+            MISSPool(add_self_loops=False, **pool_kwargs)
         ])
 
         self.mlp = nn.Sequential(
-            # nn.BatchNorm1d(1024),
+            nn.BatchNorm1d(1024),
             nn.ReLU(),
 
             nn.Dropout(0.5),
             nn.Linear(1024, 512),
-            # nn.BatchNorm1d(512),
+            nn.BatchNorm1d(512),
             nn.ReLU(),
 
             nn.Dropout(0.5),
             nn.Linear(512, 256),
-            # nn.BatchNorm1d(256),
+            nn.BatchNorm1d(256),
             nn.ReLU(),
 
             nn.Linear(256, dataset.num_classes)
@@ -69,3 +71,58 @@ class PointNet(nn.Module):
 
         return out
 
+
+class GCN(nn.Module):
+    def __init__(self, dataset, hidden=146, num_layers=4, **pool_kwargs):
+        super(GCN, self).__init__()
+
+        self.dataset = dataset
+        pos = dataset[0].pos
+        pos_dim = 0 if pos is None else pos.size(1)
+        x_dim = dataset.num_node_features + pos_dim
+
+        self.lin_in = nn.Linear(x_dim, hidden)
+
+        self.conv = nn.ModuleList([
+            conv.GCNConv(hidden, hidden, add_self_loops=not l) for l in range(num_layers)
+        ])
+
+        self.pool = nn.ModuleList([
+            MISSPool(add_self_loops=not l, **pool_kwargs) for l in range(num_layers - 1)
+        ])
+
+        self.lin_out = nn.Sequential(
+            nn.BatchNorm1d(hidden),
+            nn.ReLU(),
+
+            nn.Dropout(0.5),
+            nn.Linear(hidden, hidden//2),
+            nn.BatchNorm1d(hidden//2),
+            nn.ReLU(),
+
+            nn.Dropout(0.5),
+            nn.Linear(hidden//2, hidden//4),
+            nn.BatchNorm1d(hidden//4),
+            nn.ReLU(),
+
+            nn.Linear(hidden//4, dataset.num_classes)
+        )
+
+    def forward(self, index):
+        data = Batch.from_data_list(self.dataset[index]).to(index.device)
+
+        if 'pos' in data:
+            data.x = torch.cat([data.x, data.pos], dim=-1)
+
+        data.x = self.lin_in(data.x)
+
+        for conv_l, pool_l in zip(self.conv, self.pool):
+            data.x = conv_l(data.x, data.edge_index, data.edge_attr)
+            data = pool_l(data)
+            data.x = F.relu(data.x)
+
+        out = self.conv[-1](data.x, data.edge_index, data.edge_attr)
+        out = glob.global_add_pool(out, data.batch, data.num_graphs)
+        out = self.lin_out(out)
+
+        return out
