@@ -44,7 +44,7 @@ DEFAULT_NET_PARAMS = {
     'callbacks__lr_scheduler__factor': 0.5,
     'callbacks__lr_scheduler__patience': 10,
     'callbacks__lr_lower_bound__min_lr': 1e-6,
-    'callbacks__print_log__floatfmt': '.5g',
+    'callbacks__print_log__floatfmt': '.6f',
     'iterator_train__drop_last': True,
     'iterator_train__shuffle': True,
 }
@@ -156,7 +156,17 @@ def grid_search(model_name: str, dataset_name: str,
     return gs.best_params_, gs.best_score_
 
 
+def count_params(model_name: str, dataset_name: str,
+                 root: str = './data/', **net_kwargs):
+    dataset, _, _ = get_dataset(dataset_name, root)
+    net = get_net(model_name, dataset, **net_kwargs)
+    net.initialize()
+
+    return sum(p.numel() for p in net.module_.parameters() if p.requires_grad)
+
+
 if __name__ == "__main__":
     fire.Fire({
-        'grid_search': grid_search
+        'grid_search': grid_search,
+        'count_params': count_params
     })
