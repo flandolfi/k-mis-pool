@@ -66,8 +66,10 @@ DEFAULT_NET_PARAMS = {
     'dataset': SkorchDataset,
     'iterator_train': DataLoader,
     'iterator_valid': DataLoader,
-    'iterator_train__drop_last': True,
     'iterator_train__shuffle': True,
+    'iterator_valid__shuffle': False,
+    'iterator_train__drop_last': True,
+    'iterator_valid__drop_last': False
 }
 
 DEFAULT_GRID_PARAMS = [{
