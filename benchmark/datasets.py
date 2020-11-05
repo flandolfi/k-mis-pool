@@ -10,6 +10,8 @@ from torch_geometric.transforms import Compose, FaceToEdge
 from sklearn.model_selection import StratifiedShuffleSplit
 from skorch.dataset import Dataset
 
+from miss.pool import MISSPool
+
 
 class OneHotEncoding:
     def __init__(self, num_classes, on_key='x'):
@@ -70,6 +72,9 @@ def get_dataset(name='MNIST', root='data/'):
 
         val = CustomDataset([train[int(i)] for i in val_idx])
         train = CustomDataset([train[int(i)] for i in tr_idx])
+
+        transform = MISSPool(ordering="random", aggr="mean", weighted_aggr=False)
+        train.transform = val.transform = test.transform = transform
 
         return train, val, test
 
