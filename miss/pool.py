@@ -114,13 +114,14 @@ class MISSPool(_Pool, MessagePassing):  # noqa
 
         return dist_p, dist_s
 
-    def pool(self, x: torch.Tensor, adj: SparseTensor, pos=None):
-        x = self.propagate(edge_index=adj, x=x)
+    def pool(self, adj: SparseTensor, x: torch.Tensor = None, pos: torch.Tensor = None):
+        if x is not None:
+            x = self.propagate(edge_index=adj, x=x)
 
-        if pos is None:
-            return x, None
+        if pos is not None:
+            pos = self.propagate(edge_index=adj, x=pos)
 
-        return x, self.propagate(edge_index=adj, x=pos)
+        return x, pos
 
     def coarsen(self, adj: SparseTensor, adj_s: SparseTensor):
         if self.distances:
@@ -135,7 +136,7 @@ class MISSPool(_Pool, MessagePassing):  # noqa
 
         if cache is not None:
             out, adj = cache
-            out.x, _ = self.pool(data.x, adj)
+            out.x, _ = self.pool(adj, data.x, None)
 
             return out
 
@@ -183,7 +184,7 @@ class MISSPool(_Pool, MessagePassing):  # noqa
         adj_p = adj_p[mask]
         adj_s = adj_s[mask]
 
-        x_out, pos_out = self.pool(x, adj_p, pos)
+        x_out, pos_out = self.pool(adj_p, x, pos)
         r_out, c_out, v_out = self.coarsen(adj, adj_s).coo()
         batch_out = data['batch'][mask] if 'batch' in data else None
 
