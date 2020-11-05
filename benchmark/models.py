@@ -126,13 +126,15 @@ class GCN(nn.Module):
         data.edge_index, data.edge_attr = add_self_loops(data.edge_index, data.edge_attr,
                                                          num_nodes=data.num_nodes)
         data.x = self.lin_in(data.x)
+        out = 0
 
         for it in range(self.pool_iter):
             data.x = self._gcn_block(data.x, data.edge_index, data.edge_attr)
+            out = glob.global_mean_pool(data.x, data.batch, data.num_graphs) + out
             data = self.pool(data)
 
-        out = self._gcn_block(data.x, data.edge_index, data.edge_attr)
-        out = glob.global_mean_pool(out, data.batch, data.num_graphs)
+        data.x = self._gcn_block(data.x, data.edge_index, data.edge_attr)
+        out = glob.global_mean_pool(data.x, data.batch, data.num_graphs) + out
         out = self.lin_out(out)
 
         return out
