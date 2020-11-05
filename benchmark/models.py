@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from torch_geometric.data import Batch, Dataset
+from torch_geometric.data import Dataset
 from torch_geometric.nn import conv, glob
 
 from miss import MISSPool
@@ -58,9 +58,7 @@ class PointNet(nn.Module):
             nn.Linear(hidden*4, dataset.num_classes)
         )
 
-    def forward(self, index):
-        data = Batch.from_data_list(self.dataset[index]).to(index.device)
-
+    def forward(self, data):
         for conv_l, pool_l in zip(self.conv, self.pool):
             data.x = conv_l(data.x, data.pos, data.edge_index)
             data = pool_l(data)
@@ -108,9 +106,7 @@ class GCN(nn.Module):
             nn.Linear(hidden//4, dataset.num_classes)
         )
 
-    def forward(self, index):
-        data = Batch.from_data_list(self.dataset[index]).to(index.device)
-
+    def forward(self, data):
         if 'pos' in data:
             data.x = torch.cat([data.x, data.pos], dim=-1)
 

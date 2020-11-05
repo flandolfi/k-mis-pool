@@ -9,14 +9,29 @@ from tqdm import tqdm
 import torch
 from torch.nn.modules.loss import SmoothL1Loss, CrossEntropyLoss
 
+from torch_geometric.data import DataLoader, Data
+
+import skorch
 from skorch import NeuralNetClassifier, NeuralNetRegressor
 from skorch.callbacks import EpochScoring, LRScheduler, ProgressBar
 
 from benchmark import models
 from benchmark.callbacks import LateStopping, LRLowerBound
-from benchmark.datasets import get_dataset, merge_datasets
+from benchmark.datasets import get_dataset, merge_datasets, SkorchDataset
 
 from sklearn.model_selection import GridSearchCV
+
+
+def _to_tensor_wrapper(func):
+    to_tensor = func
+
+    def wrapper(X, device, allow_sparse=False):
+        if isinstance(X, Data):
+            return X.to(device)
+
+        return to_tensor(X, device, allow_sparse)
+
+    return wrapper
 
 
 torch.manual_seed(42)
@@ -26,6 +41,8 @@ device = 'cpu'
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(42)
     device = 'cuda'
+
+skorch.net.to_tensor = _to_tensor_wrapper(skorch.net.to_tensor)
 
 
 DEFAULT_NET_PARAMS = {
@@ -45,6 +62,9 @@ DEFAULT_NET_PARAMS = {
     'callbacks__lr_scheduler__patience': 25,
     'callbacks__lr_lower_bound__min_lr': 1e-6,
     'callbacks__print_log__floatfmt': '.6f',
+    'dataset': SkorchDataset,
+    'iterator_train': DataLoader,
+    'iterator_valid': DataLoader,
     'iterator_train__drop_last': True,
     'iterator_train__shuffle': True,
 }
@@ -68,9 +88,9 @@ def get_scorer(score_name='valid_acc'):
     return scorer
 
 
-def get_net(name, dataset, **net_kwargs):
+def get_net(name, module__dataset, **net_kwargs):
     module = getattr(models, name)
-    regression = dataset.data.y.dtype == torch.float
+    regression = module__dataset.data.y.dtype == torch.float
 
     if regression:
         net_cls = NeuralNetRegressor
@@ -92,7 +112,7 @@ def get_net(name, dataset, **net_kwargs):
     net_cls.score = get_scorer(score_name)
     net = net_cls(
         module=module,
-        module__dataset=dataset,
+        module__dataset=module__dataset,
         criterion=criterion,
         **net_kwargs
     )
@@ -145,8 +165,8 @@ def grid_search(model_name: str, dataset_name: str,
                       scoring=_score_wrapper(),
                       refit=False,
                       verbose=False,
-                      cv=_cv_iter(tr_split.X, val_split.X))
-    gs.fit(np.arange(len(dataset)), dataset.data.y.numpy())
+                      cv=_cv_iter(tr_split.X.tolist(), val_split.X.tolist()))
+    gs.fit(dataset, dataset.data.y)
     pbar.close()
 
     if cv_results_path is not None:

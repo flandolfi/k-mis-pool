@@ -36,6 +36,20 @@ class CustomDataset(InMemoryDataset):
         pass
 
 
+class SkorchDataset(torch.utils.data.Dataset):
+    def __init__(self, X, y=None):
+        self.X = X
+        self.y = y
+
+        self._len = len(X)
+
+    def __len__(self):
+        return self._len
+
+    def __getitem__(self, i):
+        return self.X[i], self.y[i]
+
+
 def get_dataset(name='MNIST', root='data/'):
     if name == 'ZINC':
         transform = Compose([
