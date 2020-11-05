@@ -4,6 +4,7 @@ from torch.nn import functional as F
 
 from torch_geometric.data import Dataset
 from torch_geometric.nn import conv, glob
+from torch_geometric.utils import add_self_loops
 
 from miss import MISSPool
 
@@ -72,7 +73,7 @@ class PointNet(nn.Module):
 
 
 class GCN(nn.Module):
-    def __init__(self, dataset, hidden=146, num_layers=4, **pool_kwargs):
+    def __init__(self, dataset, hidden=146, num_layers=4, pool_iter=3, **pool_kwargs):
         super(GCN, self).__init__()
 
         self.dataset = dataset
@@ -80,28 +81,30 @@ class GCN(nn.Module):
         pos_dim = 0 if pos is None else pos.size(1)
         x_dim = dataset.num_node_features + pos_dim
 
+        self.pool_iter = pool_iter
         self.lin_in = nn.Linear(x_dim, hidden)
+        self.pool = MISSPool(add_self_loops=False, **pool_kwargs)
 
         self.conv = nn.ModuleList([
-            conv.GCNConv(hidden, hidden, add_self_loops=not l) for l in range(num_layers)
+            conv.GCNConv(hidden, hidden, add_self_loops=False) for _ in range(num_layers)
         ])
 
-        self.pool = nn.ModuleList([
-            MISSPool(add_self_loops=not l, **pool_kwargs) for l in range(num_layers - 1)
+        self.bn = nn.ModuleList([
+            nn.BatchNorm1d(hidden) for _ in range(num_layers)
         ])
 
         self.lin_out = nn.Sequential(
-            nn.BatchNorm1d(hidden),
+            # nn.BatchNorm1d(hidden),
             nn.ReLU(),
 
             # nn.Dropout(0.5),
             nn.Linear(hidden, hidden//2),
-            nn.BatchNorm1d(hidden//2),
+            # nn.BatchNorm1d(hidden//2),
             nn.ReLU(),
 
             # nn.Dropout(0.5),
             nn.Linear(hidden//2, hidden//4),
-            nn.BatchNorm1d(hidden//4),
+            # nn.BatchNorm1d(hidden//4),
             nn.ReLU(),
 
             nn.Linear(hidden//4, dataset.num_classes)
@@ -110,16 +113,22 @@ class GCN(nn.Module):
     def forward(self, data):
         if 'pos' in data:
             data.x = torch.cat([data.x, data.pos], dim=-1)
+            data.pos = None
 
+        data.edge_index, data.edge_attr = add_self_loops(data.edge_index, data.edge_attr,
+                                                         num_nodes=data.num_nodes)
         data.x = self.lin_in(data.x)
 
-        for conv_l, pool_l in zip(self.conv, self.pool):
-            data.x = conv_l(data.x, data.edge_index, data.edge_attr)
-            data = pool_l(data)
-            data.x = F.relu(data.x)
+        for it in range(self.pool_iter):
+            for gnn, bn in zip(self.conv, self.bn):
+                data.x = gnn(data.x, data.edge_index, data.edge_attr) + data.x
+                data.x = bn(data.x)
+                data.x = F.relu(data.x)
 
-        out = self.conv[-1](data.x, data.edge_index, data.edge_attr)
-        out = glob.global_mean_pool(out, data.batch, data.num_graphs)
+            if it < self.pool_iter - 1:
+                data = self.pool(data)
+
+        out = glob.global_mean_pool(data.x, data.batch, data.num_graphs)
         out = self.lin_out(out)
 
         return out
