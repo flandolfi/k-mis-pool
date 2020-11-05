@@ -9,7 +9,7 @@ from miss import MISSPool
 
 
 class PointNet(nn.Module):
-    def __init__(self, dataset: Dataset, **pool_kwargs):
+    def __init__(self, dataset: Dataset, hidden=64, dropout=0.5, **pool_kwargs):
         super(PointNet, self).__init__()
 
         self.dataset = dataset
@@ -28,11 +28,11 @@ class PointNet(nn.Module):
             return mlp
 
         self.conv = nn.ModuleList([
-            conv.PointConv(local_nn=_block(x_dim, pos_dim, 64, 64, 128),
+            conv.PointConv(local_nn=_block(x_dim, pos_dim, hidden, hidden, hidden*2),
                            add_self_loops=True),
-            conv.PointConv(local_nn=_block(128, pos_dim, 128, 128, 256),
+            conv.PointConv(local_nn=_block(hidden*2, pos_dim, hidden*2, hidden*2, hidden*4),
                            add_self_loops=False),
-            conv.PointConv(local_nn=_block(256, pos_dim, 256, 512, 1024),
+            conv.PointConv(local_nn=_block(hidden*4, pos_dim, hidden*4, hidden*8, hidden*16),
                            add_self_loops=False)
         ])
 
@@ -42,20 +42,20 @@ class PointNet(nn.Module):
         ])
 
         self.mlp = nn.Sequential(
-            nn.BatchNorm1d(1024),
+            nn.BatchNorm1d(hidden*16),
             nn.ReLU(),
 
-            nn.Dropout(0.5),
-            nn.Linear(1024, 512),
-            nn.BatchNorm1d(512),
+            nn.Dropout(dropout),
+            nn.Linear(hidden*16, hidden*8),
+            nn.BatchNorm1d(hidden*8),
             nn.ReLU(),
 
-            nn.Dropout(0.5),
-            nn.Linear(512, 256),
-            nn.BatchNorm1d(256),
+            nn.Dropout(dropout),
+            nn.Linear(hidden*8, hidden*4),
+            nn.BatchNorm1d(hidden*4),
             nn.ReLU(),
 
-            nn.Linear(256, dataset.num_classes)
+            nn.Linear(hidden*4, dataset.num_classes)
         )
 
     def forward(self, index):
