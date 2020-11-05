@@ -198,7 +198,7 @@ def cv(model_name: str, dataset_name: str,
        reduce_input: bool = False,
        cv_results_path: str = None,
        **net_kwargs):
-    dataset, tr_split, val_split, test_idx = merge_datasets(*get_dataset(dataset_name, root))
+    dataset, tr_split, val_split, test_split = merge_datasets(*get_dataset(dataset_name, root))
 
     if reduce_input:
         dataset = add_miss_transform(dataset)
@@ -223,8 +223,8 @@ def cv(model_name: str, dataset_name: str,
     net = get_net(model_name, dataset, **opts)
 
     def _score_wrapper():
-        test_X = dataset[list(test_idx)]
-        test_y = dataset.data.y[list(test_idx)]
+        test_X = dataset[test_split.X.tolist()]
+        test_y = dataset.data.y[test_split.X.tolist()]
 
         def scorer(estimator, X, y=None):
             estimator.load_params('params.pt')
