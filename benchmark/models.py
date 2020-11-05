@@ -73,7 +73,7 @@ class PointNet(nn.Module):
 
 
 class GCN(nn.Module):
-    def __init__(self, dataset, hidden=146, num_layers=4, pool_iter=3, **pool_kwargs):
+    def __init__(self, dataset, hidden=146, num_layers=4, pool_iter=2, **pool_kwargs):
         super(GCN, self).__init__()
 
         self.dataset = dataset
@@ -110,6 +110,14 @@ class GCN(nn.Module):
             nn.Linear(hidden//4, dataset.num_classes)
         )
 
+    def _gcn_block(self, x, edge_index, edge_attr):
+        for gcn, bn in zip(self.conv, self.bn):
+            x = gcn(x, edge_index, edge_attr) + x
+            x = bn(x)
+            x = F.relu(x)
+
+        return x
+
     def forward(self, data):
         if 'pos' in data:
             data.x = torch.cat([data.x, data.pos], dim=-1)
@@ -120,15 +128,11 @@ class GCN(nn.Module):
         data.x = self.lin_in(data.x)
 
         for it in range(self.pool_iter):
-            for gnn, bn in zip(self.conv, self.bn):
-                data.x = gnn(data.x, data.edge_index, data.edge_attr) + data.x
-                data.x = bn(data.x)
-                data.x = F.relu(data.x)
+            data.x = self._gcn_block(data.x, data.edge_index, data.edge_attr)
+            data = self.pool(data)
 
-            if it < self.pool_iter - 1:
-                data = self.pool(data)
-
-        out = glob.global_mean_pool(data.x, data.batch, data.num_graphs)
+        out = self._gcn_block(data.x, data.edge_index, data.edge_attr)
+        out = glob.global_mean_pool(out, data.batch, data.num_graphs)
         out = self.lin_out(out)
 
         return out
