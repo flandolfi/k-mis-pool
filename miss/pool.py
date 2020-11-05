@@ -10,8 +10,8 @@ from miss import kernels, orderings, utils
 
 
 class _Pool(ABC, torch.nn.Module):
-    def __init__(self, pool_size=1, stride=None, aggr='add', weighted_aggr=True,
-                 ordering=None, order_on='raw', distances=False, kernel=None, cached=False):
+    def __init__(self, pool_size=1, stride=None, aggr='mean', weighted_aggr=True, add_self_loops=True,
+                 ordering=None, order_on='stride', distances=False, kernel=None, cached=False):
         super(_Pool, self).__init__()
 
         self.pool_size = pool_size
@@ -19,6 +19,7 @@ class _Pool(ABC, torch.nn.Module):
         self.normalize = weighted_aggr and aggr == 'mean'
         self.aggr = 'add' if self.normalize else aggr
         self.weighted_aggr = weighted_aggr
+        self.add_self_loops = add_self_loops
         self.ordering = self._get_ordering(ordering)
         self.order_on = order_on
         self.distances = distances
@@ -147,7 +148,9 @@ class MISSPool(_Pool, MessagePassing):  # noqa
         adj = SparseTensor(row=row, col=col, value=val, sparse_sizes=(n, n))
 
         if self.distances:
-            adj = adj.fill_diag(0.)
+            if self.add_self_loops:
+                adj = adj.fill_diag(0.)
+
             adj_p, adj_s = self._compute_distances(adj, self.pool_size, self.stride)
 
             if self.kernel is not None:
@@ -157,7 +160,8 @@ class MISSPool(_Pool, MessagePassing):  # noqa
                 deg = adj_p.sum(-1).unsqueeze(-1)
                 adj_p *= torch.where(deg == 0, torch.zeros_like(deg), 1. / deg)
         else:
-            adj = adj.fill_diag(1.)
+            if self.add_self_loops:
+                adj = adj.fill_diag(1.)
 
             if self.normalize:
                 deg = adj.sum(-1).unsqueeze(-1)
@@ -168,12 +172,12 @@ class MISSPool(_Pool, MessagePassing):  # noqa
         perm = None
 
         if self.ordering is not None:
-            if self.order_on == "raw":
-                perm = self.ordering(x, adj)
-            elif self.order_on == "pool":
+            if self.order_on == "pool":
                 perm = self.ordering(x, adj_p)
             elif self.order_on == "stride":
                 perm = self.ordering(x, adj_s)
+            else:
+                perm = self.ordering(x, adj)
 
         mask = utils.maximal_independent_set(adj_s, perm)
         adj_p = adj_p[mask]
