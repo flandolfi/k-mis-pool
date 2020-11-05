@@ -223,8 +223,8 @@ def cv(model_name: str, dataset_name: str,
     net = get_net(model_name, dataset, **opts)
 
     def _score_wrapper():
-        test_X = dataset[test_idx]
-        test_y = dataset.data.y[test_idx]
+        test_X = dataset[list(test_idx)]
+        test_y = dataset.data.y[list(test_idx)]
 
         def scorer(estimator, X, y=None):
             estimator.load_params('params.pt')
