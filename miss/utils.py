@@ -92,7 +92,7 @@ def sparse_matrix_power(matrix: SparseTensor, p: int = 2) -> SparseTensor:
 
 
 def maximal_independent_set(adj: SparseTensor, rank: Optional[torch.Tensor] = None) -> torch.Tensor:
-    row, col, _ = adj.clone().coo()
+    row, col, _ = adj.clone().detach().coo()
     n, device = adj.size(0), adj.device()
 
     if rank is None:
