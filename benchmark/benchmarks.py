@@ -46,6 +46,7 @@ skorch.net.to_tensor = _to_tensor_wrapper(skorch.net.to_tensor)
 
 
 DEFAULT_NET_PARAMS = {
+    'module__pool_size': 1,
     'module__order_on': 'stride',
     'module__ordering': 'max-curvature',
     'optimizer': torch.optim.Adam,
@@ -71,12 +72,10 @@ DEFAULT_NET_PARAMS = {
 
 DEFAULT_GRID_PARAMS = [{
         'module__weighted_aggr': [True],
-        'module__aggr': ['mean'],
-        'module__pool_size': [1, 2]
+        'module__aggr': ['mean']
     }, {
         'module__weighted_aggr': [False],
-        'module__aggr': ['mean', 'add', 'max'],
-        'module__pool_size': [1, 2]
+        'module__aggr': ['mean', 'add', 'max']
 }]
 
 
