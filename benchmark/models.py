@@ -75,25 +75,24 @@ class PointNet(nn.Module):
 class GNN(nn.Module):
     def __init__(self, dataset, gnn="GCNConv",
                  hidden=146, num_layers=4, blocks=1,
-                 **pool_kwargs):
+                 incremental=False, **pool_kwargs):
         super(GNN, self).__init__()
 
         pos = dataset[0].pos
         pos_dim = 0 if pos is None else pos.size(1)
-        x_dim = dataset.num_node_features + pos_dim
+        in_dim = dataset.num_node_features + pos_dim
+        out_dim = 0
 
         self.blocks = blocks
-        self.lin_in = nn.Linear(x_dim, hidden)
+        self.lin_in = nn.Linear(in_dim, hidden)
         self.has_weights = False
         self.pool = MISSPool(add_self_loops=False, **pool_kwargs)
+        self.incremental = incremental
 
         if isinstance(gnn, str):
             gnn = getattr(conv, gnn)
 
-        gnn_kwargs = {
-            'in_channels': hidden,
-            'out_channels': hidden
-        }
+        gnn_kwargs = {}
 
         if gnn is conv.GCNConv:
             self.has_weights = True
@@ -101,23 +100,26 @@ class GNN(nn.Module):
         elif gnn is conv.SAGEConv:
             gnn_kwargs['aggr'] = 'max'
 
-        self.conv = nn.ModuleList([
-            nn.ModuleList([
-                gnn(**gnn_kwargs)
-                for _ in range(num_layers)
-            ]) for _ in range(blocks)
-        ])
+        self.conv = nn.ModuleList()
+        self.bn = nn.ModuleList()
 
-        self.bn = nn.ModuleList([
-            nn.ModuleList([
-                nn.BatchNorm1d(hidden)
-                for _ in range(num_layers)
-            ]) for _ in range(blocks)
-        ])
+        for b in range(blocks):
+            self.conv.append(nn.ModuleList([
+                gnn(hidden, hidden, **gnn_kwargs) for _ in range(num_layers)
+            ]))
+
+            self.bn.append(nn.ModuleList([
+                nn.BatchNorm1d(hidden) for _ in range(num_layers)
+            ]))
+
+            out_dim += hidden
+
+            if incremental and b < blocks - 1:
+                hidden *= 2
 
         self.lin_out = nn.Sequential(
             nn.ReLU(),
-            nn.Linear(hidden*blocks, hidden//2),
+            nn.Linear(out_dim, hidden//2),
             nn.ReLU(),
             nn.Linear(hidden//2, hidden//4),
             nn.ReLU(),
@@ -149,6 +151,9 @@ class GNN(nn.Module):
             data.x = self._gcn_block(idx, data.x, data.edge_index, data.edge_attr)
             xs.append(glob.global_mean_pool(data.x, data.batch, data.num_graphs))
             data = self.pool(data)
+
+            if self.incremental:
+                data.x = data.x.repeat(1, 2)
 
         data.x = self._gcn_block(-1, data.x, data.edge_index, data.edge_attr)
         xs.append(glob.global_mean_pool(data.x, data.batch, data.num_graphs))
