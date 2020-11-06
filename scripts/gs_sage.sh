@@ -9,6 +9,7 @@ DS=$1
 ORDER=$2
 
 mkdir -p $DIR
+shift 2
 
 python -m benchmark.benchmarks grid_search --model_name=GraphSAGE --dataset_name=$DS \
     --cv_results_path=$DIR/${GNN}_L2_${DS}_${ORDER}_GS.csv --batch_size=128 --lr=0.001 \
