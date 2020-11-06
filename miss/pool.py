@@ -10,8 +10,8 @@ from miss import kernels, orderings, utils
 
 
 class _Pool(ABC, torch.nn.Module):
-    def __init__(self, pool_size=1, stride=None, aggr='mean', weighted_aggr=True, add_self_loops=True,
-                 ordering=None, order_on='stride', distances=False, kernel=None, cached=False):
+    def __init__(self, pool_size=1, stride=None, aggr='mean', weighted_aggr=False, add_self_loops=True,
+                 ordering='min-curvature', order_on='stride', distances=False, kernel=None, cached=False):
         super(_Pool, self).__init__()
 
         self.pool_size = pool_size
