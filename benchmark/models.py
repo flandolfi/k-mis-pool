@@ -72,65 +72,98 @@ class PointNet(nn.Module):
         return out
 
 
-class GCN(nn.Module):
-    def __init__(self, dataset, hidden=146, num_layers=4, pool_iter=2, **pool_kwargs):
-        super(GCN, self).__init__()
+class GNN(nn.Module):
+    def __init__(self, dataset, gnn="GCNConv",
+                 hidden=146, num_layers=4, blocks=1,
+                 **pool_kwargs):
+        super(GNN, self).__init__()
 
-        self.dataset = dataset
         pos = dataset[0].pos
         pos_dim = 0 if pos is None else pos.size(1)
         x_dim = dataset.num_node_features + pos_dim
 
-        self.pool_iter = pool_iter
+        self.blocks = blocks
         self.lin_in = nn.Linear(x_dim, hidden)
+        self.has_weights = False
         self.pool = MISSPool(add_self_loops=False, **pool_kwargs)
 
+        if isinstance(gnn, str):
+            gnn = getattr(conv, gnn)
+
+        gnn_kwargs = {
+            'in_channels': hidden,
+            'out_channels': hidden
+        }
+
+        if gnn is conv.GCNConv:
+            self.has_weights = True
+            gnn_kwargs['add_self_loops'] = False
+        elif gnn is conv.SAGEConv:
+            gnn_kwargs['aggr'] = 'max'
+
         self.conv = nn.ModuleList([
-            conv.GCNConv(hidden, hidden, add_self_loops=False) for _ in range(num_layers)
+            nn.ModuleList([
+                gnn(**gnn_kwargs)
+                for _ in range(num_layers)
+            ]) for _ in range(blocks)
         ])
 
         self.bn = nn.ModuleList([
-            nn.BatchNorm1d(hidden) for _ in range(num_layers)
+            nn.ModuleList([
+                nn.BatchNorm1d(hidden)
+                for _ in range(num_layers)
+            ]) for _ in range(blocks)
         ])
 
         self.lin_out = nn.Sequential(
-            # nn.BatchNorm1d(hidden),
             nn.ReLU(),
-
-            # nn.Dropout(0.5),
-            nn.Linear(hidden, hidden//2),
-            # nn.BatchNorm1d(hidden//2),
+            nn.Linear(hidden*blocks, hidden//2),
             nn.ReLU(),
-
-            # nn.Dropout(0.5),
             nn.Linear(hidden//2, hidden//4),
-            # nn.BatchNorm1d(hidden//4),
             nn.ReLU(),
 
             nn.Linear(hidden//4, dataset.num_classes)
         )
 
-    def _gcn_block(self, x, edge_index, edge_attr):
-        for gcn, bn in zip(self.conv, self.bn):
-            x = gcn(x, edge_index, edge_attr) + x
+    def _gcn_block(self, index, x, edge_index, edge_attr):
+        for gcn, bn in zip(self.conv[index], self.bn[index]):  # noqa
+            if self.has_weights:
+                x = gcn(x, edge_index, edge_attr) + x
+            else:
+                x = gcn(x, edge_index) + x
+
             x = bn(x)
             x = F.relu(x)
 
         return x
 
     def forward(self, data):
-        out = torch.cat([data.x, data.pos], dim=-1)
+        data.x = torch.cat([data.x, data.pos], dim=-1)
+        data.pos = None
         data.edge_index, data.edge_attr = add_self_loops(data.edge_index, data.edge_attr,
                                                          num_nodes=data.num_nodes)
-        out = self.lin_in(out)
+        data.x = self.lin_in(data.x)
+        xs = []
 
-        for it in range(self.pool_iter):
-            data.pos = self._gcn_block(out, data.edge_index, data.edge_attr)
+        for idx in range(self.blocks - 1):
+            data.x = self._gcn_block(idx, data.x, data.edge_index, data.edge_attr)
+            xs.append(glob.global_mean_pool(data.x, data.batch, data.num_graphs))
             data = self.pool(data)
-            out = data.pos
 
-        out = self._gcn_block(out, data.edge_index, data.edge_attr)
-        out = glob.global_mean_pool(out, data.batch, data.num_graphs)
+        data.x = self._gcn_block(-1, data.x, data.edge_index, data.edge_attr)
+        xs.append(glob.global_mean_pool(data.x, data.batch, data.num_graphs))
+
+        out = torch.cat(xs, dim=-1)
         out = self.lin_out(out)
 
         return out
+
+
+class GraphSAGE(GNN):
+    def __init__(self, *args, **kwargs):
+        super(GraphSAGE, self).__init__(gnn="SAGEConv", *args, **kwargs)
+
+
+class GCN(GNN):
+    def __init__(self, *args, **kwargs):
+        super(GCN, self).__init__(gnn="GCNConv", *args, **kwargs)
