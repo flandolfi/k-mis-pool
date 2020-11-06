@@ -1,12 +1,13 @@
 --find-links https://download.pytorch.org/whl/torch_stable.html
---find-links https://pytorch-geometric.com/whl/torch-1.6.0.html
-torch==1.6.0+cu101
-torchvision==0.7.0+cu101
+--find-links https://pytorch-geometric.com/whl/torch-1.7.0.html
+torch==1.7.0+cu101
+torchvision==0.8.1+cu101
+torchaudio==0.7.0
 torch-scatter==latest+cu101
 torch-sparse==latest+cu101
 torch-cluster==latest+cu101
 torch-spline-conv==latest+cu101
-torch-geometric
+git+https://github.com/rusty1s/pytorch_geometric.git
 networkx
 numpy
 pandas
