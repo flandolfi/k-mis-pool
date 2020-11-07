@@ -75,7 +75,8 @@ class PointNet(nn.Module):
 class GNN(nn.Module):
     def __init__(self, dataset, gnn="GCNConv",
                  hidden=146, num_layers=4, blocks=1,
-                 incremental=False, **pool_kwargs):
+                 hidden_factor=1, readout=False,
+                 **pool_kwargs):
         super(GNN, self).__init__()
 
         pos = dataset[0].pos
@@ -87,7 +88,8 @@ class GNN(nn.Module):
         self.lin_in = nn.Linear(in_dim, hidden)
         self.has_weights = False
         self.pool = MISSPool(add_self_loops=False, **pool_kwargs)
-        self.incremental = incremental
+        self.hidden_factor = hidden_factor
+        self.readout = readout
 
         if isinstance(gnn, str):
             gnn = getattr(conv, gnn)
@@ -112,10 +114,11 @@ class GNN(nn.Module):
                 nn.BatchNorm1d(hidden) for _ in range(num_layers)
             ]))
 
-            out_dim += hidden
+            if readout or b == blocks - 1:
+                out_dim += hidden
 
-            if incremental and b < blocks - 1:
-                hidden *= 2
+            if b < blocks - 1:
+                hidden *= hidden_factor
 
         self.lin_out = nn.Sequential(
             nn.ReLU(),
@@ -149,11 +152,12 @@ class GNN(nn.Module):
 
         for idx in range(self.blocks - 1):
             data.x = self._gcn_block(idx, data.x, data.edge_index, data.edge_attr)
-            xs.append(glob.global_mean_pool(data.x, data.batch, data.num_graphs))
-            data = self.pool(data)
 
-            if self.incremental:
-                data.x = data.x.repeat(1, 2)
+            if self.readout:
+                xs.append(glob.global_mean_pool(data.x, data.batch, data.num_graphs))
+
+            data = self.pool(data)
+            data.x = data.x.repeat(1, self.hidden_factor)
 
         data.x = self._gcn_block(-1, data.x, data.edge_index, data.edge_attr)
         xs.append(glob.global_mean_pool(data.x, data.batch, data.num_graphs))
@@ -180,5 +184,5 @@ class GraphSAGEConv(conv.SAGEConv):
 
 
 class GraphSAGE(GNN):
-    def __init__(self, *args, **kwargs):
-        super(GraphSAGE, self).__init__(gnn=GraphSAGEConv, *args, **kwargs)  # noqa
+    def __init__(self, dataset, hidden=90, *args, **kwargs):
+        super(GraphSAGE, self).__init__(dataset, gnn=GraphSAGEConv, hidden=hidden, *args, **kwargs)  # noqa
