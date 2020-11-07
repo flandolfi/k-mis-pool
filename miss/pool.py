@@ -1,18 +1,17 @@
-from abc import ABC, abstractmethod
-from typing import Tuple
-
 import torch
+from torch import Tensor
 from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.data import Batch, Data
+from torch_geometric.typing import Tuple, OptTensor, OptPairTensor
 from torch_sparse import SparseTensor
 
 from miss import kernels, orderings, utils
 
 
-class _Pool(ABC, torch.nn.Module):
+class MISSPool(MessagePassing):
     def __init__(self, pool_size=1, stride=None, aggr='mean', weighted_aggr=False, add_self_loops=True,
-                 ordering='min-curvature', order_on='stride', distances=False, kernel=None, cached=False):
-        super(_Pool, self).__init__()
+                 ordering='min-curvature', order_on='stride', distances=False, kernel=None):
+        super(MISSPool, self).__init__()
 
         self.pool_size = pool_size
         self.stride = stride if stride else pool_size
@@ -28,32 +27,14 @@ class _Pool(ABC, torch.nn.Module):
         if isinstance(kernel, str):
             self.kernel = getattr(kernels, kernel.title().replace('-', ''))()
 
-        self.cache = {True: None, False: None}
+        if self.distances:
+            self.fuse = False
+            self._mat_mul = utils.sparse_min_sum_mm
+        else:
+            self._mat_mul = SparseTensor.matmul
 
-        if cached and isinstance(self.ordering, orderings.Ordering) and self.ordering.cacheable:
-            if cached == 'train' or cached == 'both':
-                self.cache[True] = {}
-            if cached == 'test' or cached == 'both':
-                self.cache[False] = {}
-
-    @property
-    def cached(self):
-        return self.cache[self.training] is not None
-
-    @abstractmethod
-    def _is_same_data(self, data, cache):
-        raise NotImplementedError
-
-    def _set_cache(self, **kwargs):
-        self.cache[self.training] = kwargs
-
-    def _maybe_cache(self, data, *keys):
-        cache = self.cache[self.training]
-
-        if bool(cache) and self._is_same_data(data, cache):
-            return (cache[k] for k in keys)
-
-        return None
+            if self.aggr == 'max':
+                self.fuse = False
 
     @staticmethod
     def _get_ordering(ordering):
@@ -75,46 +56,23 @@ class _Pool(ABC, torch.nn.Module):
 
         return getattr(orderings, ''.join(t.title() for t in tokens))(**opts)
 
-
-class MISSPool(_Pool, MessagePassing):  # noqa
-    def _is_same_data(self, data, cache):
-        return data.edge_index.equal(cache['edge_index'])
-
-    @staticmethod
-    def _compute_paths(adj: SparseTensor, p: int, s: int) -> Tuple[SparseTensor, SparseTensor]:
+    def _compute_paths(self, adj: SparseTensor, p: int, s: int) -> Tuple[SparseTensor, SparseTensor]:
         if p < s:
-            return MISSPool._compute_paths(adj, s, p)[::-1]
+            return self._compute_paths(adj, s, p)[::-1]
 
         if p == s:
-            adj_pow = utils.sparse_matrix_power(adj, p)
+            adj_pow = utils.sparse_matrix_power(adj, p, self.distances)
             return adj_pow, adj_pow.clone()
 
-        adj_p, adj_s = MISSPool._compute_paths(adj, p - s, s // 2)
-        adj_s @= adj_s
+        adj_p, adj_s = self._compute_paths(adj, p - s, s // 2)
+        adj_s = self._mat_mul(adj_s, adj_s)
 
         if s % 2 == 1:
-            adj_s @= adj
+            adj_s = self._mat_mul(adj_s, adj)
 
-        return adj_p @ adj_s, adj_s
+        return self._mat_mul(adj_p, adj_s), adj_s
 
-    @staticmethod
-    def _compute_distances(adj: SparseTensor, p: float, s: float) -> Tuple[SparseTensor, SparseTensor]:
-        if p < s:
-            return MISSPool._compute_distances(adj, s, p)[::-1]
-
-        dist_p = utils.pairwise_distances(adj, p)
-
-        if p == s:
-            return dist_p, dist_p.clone()
-
-        row, col, val = dist_p.coo()
-        mask = val <= s
-        dist_s = SparseTensor(row=row[mask], col=col[mask], value=val[mask],
-                              sparse_sizes=adj.sparse_sizes(), is_sorted=True)
-
-        return dist_p, dist_s
-
-    def pool(self, adj: SparseTensor, x: torch.Tensor = None, pos: torch.Tensor = None):
+    def pool(self, adj: SparseTensor, x: OptTensor = None, pos: OptTensor = None) -> OptPairTensor:
         if x is not None:
             x = self.propagate(edge_index=adj, x=x)
 
@@ -123,23 +81,10 @@ class MISSPool(_Pool, MessagePassing):  # noqa
 
         return x, pos
 
-    def coarsen(self, adj: SparseTensor, adj_s: SparseTensor):
-        if self.distances:
-            adj_out = utils.sparse_min_sum_mm(utils.sparse_min_sum_mm(adj_s, adj), adj_s.t())
-        else:
-            adj_out = adj_s @ adj @ adj_s.t()
-
-        return adj_out
+    def coarsen(self, adj: SparseTensor, adj_s: SparseTensor) -> SparseTensor:
+        return self._mat_mul(self._mat_mul(adj_s, adj), adj_s.t())
 
     def forward(self, data: Data):
-        cache = self._maybe_cache(data, 'out', 'adj')
-
-        if cache is not None:
-            out, adj = cache
-            out.x, _ = self.pool(adj, data.x, None)
-
-            return out
-
         x, pos, n = data.x, data.pos, data.num_nodes
         (row, col), val = data.edge_index, data.edge_attr
 
@@ -148,27 +93,17 @@ class MISSPool(_Pool, MessagePassing):  # noqa
 
         adj = SparseTensor(row=row, col=col, value=val, sparse_sizes=(n, n))
 
-        if self.distances:
-            if self.add_self_loops:
-                adj = adj.fill_diag(0.)
+        if self.add_self_loops:
+            adj = adj.fill_diag(int(not self.distances))
 
-            adj_p, adj_s = self._compute_distances(adj, self.pool_size, self.stride)
+        if self.normalize:
+            deg = adj.sum(-1).unsqueeze(-1)
+            adj *= torch.where(deg == 0, torch.zeros_like(deg), 1. / deg)
 
-            if self.kernel is not None:
-                adj_p = adj_p.set_value(self.kernel(adj_p.storage.value()))
+        adj_p, adj_s = self._compute_paths(adj, self.pool_size, self.stride)
 
-            if self.normalize:
-                deg = adj_p.sum(-1).unsqueeze(-1)
-                adj_p *= torch.where(deg == 0, torch.zeros_like(deg), 1. / deg)
-        else:
-            if self.add_self_loops:
-                adj = adj.fill_diag(1.)
-
-            if self.normalize:
-                deg = adj.sum(-1).unsqueeze(-1)
-                adj *= torch.where(deg == 0, torch.zeros_like(deg), 1. / deg)
-
-            adj_p, adj_s = self._compute_paths(adj, self.pool_size, self.stride)
+        if self.kernel is not None:
+            adj_p = adj_p.set_value(self.kernel(adj_p.storage.value()))
 
         perm = None
 
@@ -188,12 +123,13 @@ class MISSPool(_Pool, MessagePassing):  # noqa
         r_out, c_out, v_out = self.coarsen(adj, adj_s).coo()
         batch_out = data['batch'][mask] if 'batch' in data else None
 
-        out = Batch(x=x_out, pos=pos_out, edge_index=torch.stack((r_out, c_out)), edge_attr=v_out, batch=batch_out)
-
-        if self.cached:
-            self._set_cache(out=out, adj=adj_p)
-
-        return out
+        return Batch(x=x_out, pos=pos_out,
+                     edge_index=torch.stack((r_out, c_out)),
+                     edge_attr=v_out,
+                     batch=batch_out)
 
     def message(self, x_j, edge_attr):  # noqa
         return x_j * edge_attr.view((-1, 1)) if self.weighted_aggr else x_j
+
+    def message_and_aggregate(self, adj_t: SparseTensor, x: Tensor) -> Tensor:  # noqa
+        return adj_t @ x

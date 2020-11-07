@@ -6,8 +6,6 @@ from torch_sparse import SparseTensor
 
 
 class Ordering(ABC):
-    cacheable = False
-
     def __init__(self, descending=True):
         self.descending = descending
 
@@ -31,15 +29,11 @@ class Random(Ordering):
 
 
 class Degree(Ordering):
-    cacheable = True
-
     def _compute(self, x: torch.FloatTensor, adj: SparseTensor):
         return adj.sum(1).view(-1)
 
 
 class KPath(Ordering):
-    cacheable = True
-
     def __init__(self, k=1, descending=True):
         super(KPath, self).__init__(descending)
         self.k = k
