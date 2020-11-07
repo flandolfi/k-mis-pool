@@ -164,11 +164,21 @@ class GNN(nn.Module):
         return out
 
 
-class GraphSAGE(GNN):
-    def __init__(self, *args, **kwargs):
-        super(GraphSAGE, self).__init__(gnn="SAGEConv", *args, **kwargs)
-
-
 class GCN(GNN):
     def __init__(self, *args, **kwargs):
         super(GCN, self).__init__(gnn="GCNConv", *args, **kwargs)
+
+
+class GraphSAGEConv(conv.SAGEConv):
+    def __init__(self, in_channels, out_channels, *args, **kwargs):
+        super(GraphSAGEConv, self).__init__(in_channels, out_channels, *args, **kwargs)
+        self.aggr = "max"
+        self.pool_lin = nn.Linear(in_channels, in_channels)
+
+    def message(self, x_j: torch.Tensor) -> torch.Tensor:
+        return F.relu(self.pool_lin(x_j))
+
+
+class GraphSAGE(GNN):
+    def __init__(self, *args, **kwargs):
+        super(GraphSAGE, self).__init__(gnn=GraphSAGEConv, *args, **kwargs)  # noqa
