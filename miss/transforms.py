@@ -2,7 +2,10 @@ import torch
 from torch_geometric.utils import to_networkx
 from torch_geometric.data import Data
 from torch_sparse import SparseTensor
+
 from networkx.algorithms import centrality as nxc
+
+from miss.pool import MISSPool
 
 
 class Permute(object):
@@ -37,3 +40,20 @@ class Permute(object):
                 kwargs[key] = val
 
         return Data.from_dict(kwargs)
+
+
+class MISSampling(object):
+    def __init__(self, max_nodes=4096):
+        self.pool = MISSPool(ordering="random")
+        self.max_nodes = max_nodes
+
+    def __call__(self, data: Data):
+        out = data
+        stride = 1
+
+        while out.num_nodes > self.max_nodes:
+            self.pool.stride = self.pool.pool_size = stride
+            out = self.pool(data)
+            stride += 1
+
+        return out

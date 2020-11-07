@@ -10,8 +10,6 @@ from torch_geometric.transforms import Compose, FaceToEdge, NormalizeScale
 from sklearn.model_selection import StratifiedShuffleSplit
 from skorch.dataset import Dataset
 
-from miss.pool import MISSPool
-
 
 class OneHotEncoding:
     def __init__(self, num_classes, on_key='x'):
@@ -91,8 +89,3 @@ def merge_datasets(*datasets):
 
     return (CustomDataset(sum(map(list, datasets), start=[])),
             *(Dataset(X, y) for X, y in zip(Xs, Ys)))
-
-
-def add_miss_transform(dataset, *args, **kwargs):
-    dataset.transform = MISSPool(ordering="random", *args, **kwargs)
-    return dataset

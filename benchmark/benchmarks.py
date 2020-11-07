@@ -17,9 +17,11 @@ from skorch.callbacks import EpochScoring, LRScheduler, ProgressBar, Checkpoint
 
 from benchmark import models
 from benchmark.callbacks import LateStopping, LRLowerBound
-from benchmark.datasets import get_dataset, merge_datasets, SkorchDataset, add_miss_transform
+from benchmark.datasets import get_dataset, merge_datasets, SkorchDataset
 
 from sklearn.model_selection import GridSearchCV, cross_validate
+
+from miss.transforms import MISSampling
 
 
 def _to_tensor_wrapper(func):
@@ -127,7 +129,7 @@ def grid_search(model_name: str, dataset_name: str,
                 param_grid: Union[list, dict] = None,
                 root: str = './data/',
                 repetitions: int = 3,
-                reduce_input: bool = False,
+                max_nodes: int = None,
                 cv_results_path: str = None,
                 **net_kwargs):
     if param_grid is None:
@@ -139,8 +141,8 @@ def grid_search(model_name: str, dataset_name: str,
     pbar = tqdm(total=total*repetitions, leave=False, desc='Grid Search')
     dataset, tr_split, val_split, _ = merge_datasets(*get_dataset(dataset_name, root))
 
-    if reduce_input:
-        dataset = add_miss_transform(dataset)
+    if max_nodes is not None:
+        dataset.transform = MISSampling(max_nodes)
 
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update({
@@ -193,13 +195,13 @@ def count_params(model_name: str, dataset_name: str,
 def cv(model_name: str, dataset_name: str,
        root: str = './data/',
        repetitions: int = 3,
-       reduce_input: bool = False,
+       max_nodes: int = None,
        cv_results_path: str = None,
        **net_kwargs):
     dataset, tr_split, val_split, test_split = merge_datasets(*get_dataset(dataset_name, root))
 
-    if reduce_input:
-        dataset = add_miss_transform(dataset, pool_size=2)
+    if max_nodes is not None:
+        dataset.transform = MISSampling(max_nodes)
 
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update({
