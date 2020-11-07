@@ -5,6 +5,7 @@ from torch.nn import functional as F
 from torch_geometric.data import Dataset
 from torch_geometric.nn import conv, glob
 from torch_geometric.utils import add_self_loops
+from torch_geometric.typing import SparseTensor, Tensor, OptPairTensor
 
 from miss import MISSPool
 
@@ -182,9 +183,13 @@ class GraphSAGEConv(conv.SAGEConv):
         super(GraphSAGEConv, self).__init__(in_channels, out_channels, *args, **kwargs)
         self.aggr = "max"
         self.pool_lin = nn.Linear(in_channels, in_channels)
+        self.fuse = False
 
     def message(self, x_j: torch.Tensor) -> torch.Tensor:
         return F.relu(self.pool_lin(x_j))
+
+    def message_and_aggregate(self, adj_t: SparseTensor, x: OptPairTensor) -> Tensor:
+        return NotImplemented
 
 
 class GraphSAGE(GNN):
