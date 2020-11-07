@@ -143,7 +143,11 @@ class GNN(nn.Module):
         return x
 
     def forward(self, data):
-        data.x = torch.cat([data.x, data.pos], dim=-1)
+        if data.x is None:
+            data.x = data.pos
+        elif data.pos is not None:
+            data.x = torch.cat([data.x, data.pos], dim=-1)
+
         data.pos = None
         data.edge_index, data.edge_attr = add_self_loops(data.edge_index, data.edge_attr,
                                                          num_nodes=data.num_nodes)
