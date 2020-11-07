@@ -103,12 +103,13 @@ def maximal_independent_set(adj: SparseTensor, rank: Optional[torch.Tensor] = No
     row, col = row[edge_mask], col[edge_mask]
 
     mis = torch.zeros(n, dtype=torch.bool, device=device)
+    excl = torch.zeros_like(mis)
     edge_mask = torch.lt(rank[row], rank[col])
     mask = scatter_and(edge_mask, row, out=torch.ones_like(mis))
 
     while mask.any():
-        mis = mis | mask
-        excl = mis | scatter_or(mis[row], col, out=torch.zeros_like(mis))
+        mis |= mask
+        excl = mis | scatter_or(mis[row], col, out=excl)
         edge_mask = torch.lt(rank[row], rank[col]) | excl[col]
         mask = scatter_and(edge_mask, row, out=~excl)
 
