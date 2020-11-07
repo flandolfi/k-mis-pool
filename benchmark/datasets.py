@@ -5,7 +5,7 @@ import numpy as np
 
 from torch_geometric.data import Data, InMemoryDataset
 from torch_geometric.datasets import GNNBenchmarkDataset, ZINC, ModelNet
-from torch_geometric.transforms import Compose, FaceToEdge
+from torch_geometric.transforms import Compose, FaceToEdge, NormalizeScale
 
 from sklearn.model_selection import StratifiedShuffleSplit
 from skorch.dataset import Dataset
@@ -62,8 +62,9 @@ def get_dataset(name='MNIST', root='data/'):
                 for split in ['train', 'val', 'test'])
 
     if name.startswith('ModelNet'):
-        train = ModelNet(osp.join(root, name), name=name[8:], train=True, pre_transform=FaceToEdge())
-        test = ModelNet(osp.join(root, name), name=name[8:], train=False, pre_transform=FaceToEdge())
+        pre_tr = Compose([NormalizeScale(), FaceToEdge(remove_faces=True)])
+        train = ModelNet(osp.join(root, name), name=name[8:], train=True, pre_transform=pre_tr)
+        test = ModelNet(osp.join(root, name), name=name[8:], train=False, pre_transform=pre_tr)
 
         sss = StratifiedShuffleSplit(n_splits=1, test_size=0.1, random_state=42)
         y = train.data.y.numpy()
@@ -92,6 +93,6 @@ def merge_datasets(*datasets):
             *(Dataset(X, y) for X, y in zip(Xs, Ys)))
 
 
-def add_miss_transform(dataset):
-    dataset.transform = MISSPool(ordering="random", aggr="mean", weighted_aggr=False)
+def add_miss_transform(dataset, *args, **kwargs):
+    dataset.transform = MISSPool(ordering="random", *args, **kwargs)
     return dataset

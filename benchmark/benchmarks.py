@@ -199,7 +199,7 @@ def cv(model_name: str, dataset_name: str,
     dataset, tr_split, val_split, test_split = merge_datasets(*get_dataset(dataset_name, root))
 
     if reduce_input:
-        dataset = add_miss_transform(dataset)
+        dataset = add_miss_transform(dataset, pool_size=2)
 
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update({
