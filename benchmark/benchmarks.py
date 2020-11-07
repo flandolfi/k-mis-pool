@@ -73,11 +73,8 @@ DEFAULT_NET_PARAMS = {
 }
 
 DEFAULT_GRID_PARAMS = [{
-        'module__weighted_aggr': [True],
-        'module__aggr': ['mean']
-    }, {
-        'module__weighted_aggr': [False],
-        'module__aggr': ['mean', 'add']
+    'module__weighted_aggr': [True, False],
+    'module__aggr': ['mean', 'add']
 }]
 
 
