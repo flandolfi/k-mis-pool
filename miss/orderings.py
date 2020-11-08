@@ -33,9 +33,9 @@ class Degree(Ordering):
         return adj.sum(1).view(-1)
 
 
-class KPath(Ordering):
+class KPaths(Ordering):
     def __init__(self, k=1, descending=True):
-        super(KPath, self).__init__(descending)
+        super(KPaths, self).__init__(descending)
         self.k = k
 
     def _compute(self, x: torch.FloatTensor, adj: SparseTensor):
@@ -58,3 +58,8 @@ class Curvature(Ordering):
                                          self.normalization, num_nodes=adj.size(0))
         lap = SparseTensor.from_edge_index(lap_idx, lap_val, adj.sparse_sizes())
         return 0.5*torch.norm(lap @ x, p=2, dim=-1)
+
+
+class Norm(Ordering):
+    def _compute(self, x: torch.FloatTensor, adj: SparseTensor):
+        return torch.norm(x, p=2, dim=-1)
