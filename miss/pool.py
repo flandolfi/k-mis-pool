@@ -1,24 +1,24 @@
 import torch
-from torch import Tensor
+
 from torch_geometric.nn.conv import MessagePassing
-from torch_geometric.data import Batch, Data
-from torch_geometric.typing import Tuple, OptTensor, OptPairTensor
+from torch_geometric.typing import Adj, Tensor, Tuple, OptTensor, Size
 from torch_sparse import SparseTensor
 
 from miss import kernels, orderings, utils
 
 
 class MISSPool(MessagePassing):
-    def __init__(self, pool_size=1, stride=None, aggr='add', weighted_aggr=True, normalize=True,
-                 add_self_loops=True, ordering='random', distances=False, kernel=None):
+    propagate_type = {'x': Tensor}
+
+    def __init__(self, pool_size=1, stride=None, aggr='mean', ordering='random',
+                 add_self_loops=True, normalize=False, distances=False, kernel=None):
         super(MISSPool, self).__init__(aggr=aggr)
 
         self.pool_size = pool_size
         self.stride = stride if stride else pool_size
-        self.weighted_aggr = weighted_aggr
-        self.normalize = normalize
         self.add_self_loops = add_self_loops
-        self.ordering = self._get_ordering(ordering)
+        self.ordering: orderings.Ordering = self._get_ordering(ordering)
+        self.normalize = normalize
         self.distances = distances
         self.kernel = kernel
 
@@ -55,7 +55,7 @@ class MISSPool(MessagePassing):
         return getattr(orderings, ''.join(t.title() for t in tokens))(**opts)
 
     def pool(self, adj: SparseTensor, mis: Tensor,
-             x: OptTensor = None, pos: OptTensor = None) -> OptPairTensor:
+             x: OptTensor = None, pos: OptTensor = None) -> Tuple[OptTensor, OptTensor]:
         if self.kernel is not None:
             adj = adj.set_value(self.kernel(adj.storage.value()))
 
@@ -81,36 +81,44 @@ class MISSPool(MessagePassing):
 
         return self._mat_mul(self._mat_mul(adj_s, adj), adj_s.t())
 
-    def forward(self, data: Data):
-        x, pos, n = data.x, data.pos, data.num_nodes
-        (row, col), val = data.edge_index, data.edge_attr
-
-        if val is None:
-            val = torch.ones_like(row, dtype=torch.float)
-
-        adj = SparseTensor(row=row, col=col, value=val, sparse_sizes=(n, n))
-
+    def forward(self, x: OptTensor, edge_index: Adj,
+                edge_attr: OptTensor = None,
+                pos: OptTensor = None,
+                batch: OptTensor = None,
+                size: Size = None) -> Tuple[OptTensor, Adj, OptTensor, OptTensor]:
+        adj: Adj = edge_index
+        
+        if isinstance(adj, Tensor):
+            if size is None:
+                if x is not None:
+                    n = x.size(0)
+                elif pos is not None:
+                    n = pos.size(0)
+                elif batch is not None:
+                    n = batch.size(0)
+                else:
+                    n = int(edge_index.max()) + 1
+                size = (n, n)
+                
+            adj = SparseTensor.from_edge_index(edge_index, edge_attr, size)
+        
         if self.add_self_loops:
             adj = adj.fill_diag(int(not self.distances))
-
+        
         if self.normalize:
             deg = adj.sum(-1).unsqueeze(-1)
             adj *= torch.where(deg == 0, torch.zeros_like(deg), 1. / deg)
-
+        
         perm = None if self.ordering is None else self.ordering(x, adj)
         mis = utils.maximal_k_independent_set(adj, self.stride, perm)
-
-        x_out, pos_out = self.pool(adj, mis, x, pos)
-        r_out, c_out, v_out = self.coarsen(adj, mis).coo()
-        batch_out = data['batch'][mis] if 'batch' in data else None
-
-        return Batch(x=x_out, pos=pos_out,
-                     edge_index=torch.stack((r_out, c_out)),
-                     edge_attr=v_out,
-                     batch=batch_out)
+        
+        x, pos = self.pool(adj, mis, x, pos)
+        adj = self.coarsen(adj, mis)
+        
+        if batch is not None:
+            batch = batch[mis]
+        
+        return x, adj, pos, batch
 
     def message_and_aggregate(self, adj_t: SparseTensor, x: Tensor) -> Tensor:  # noqa
-        if not self.weighted_aggr:
-            adj_t = adj_t.fill_value(1.)
-
         return adj_t.matmul(x, reduce=self.aggr)

@@ -144,28 +144,28 @@ class GNN(nn.Module):
         return x
 
     def forward(self, data):
-        if data.x is None:
-            data.x = data.pos
-        elif data.pos is not None:
-            data.x = torch.cat([data.x, data.pos], dim=-1)
+        x, pos, batch, n, b = data.x, data.pos, data.batch, data.num_nodes, data.num_graphs
+        edge_index, edge_attr = add_self_loops(data.edge_index, data.edge_attr, num_nodes=n)
+        
+        if x is None:
+            x = pos
+        elif pos is not None:
+            x = torch.cat([x, pos], dim=-1)
 
-        data.pos = None
-        data.edge_index, data.edge_attr = add_self_loops(data.edge_index, data.edge_attr,
-                                                         num_nodes=data.num_nodes)
-        data.x = self.lin_in(data.x)
+        x = self.lin_in(x)
         xs = []
 
         for idx in range(self.blocks - 1):
-            data.x = self._gcn_block(idx, data.x, data.edge_index, data.edge_attr)
+            x = self._gcn_block(idx, x, edge_index, edge_attr)
 
             if self.readout:
-                xs.append(glob.global_mean_pool(data.x, data.batch, data.num_graphs))
+                xs.append(glob.global_mean_pool(x, batch, b))
 
-            data = self.pool(data)
-            data.x = data.x.repeat(1, self.hidden_factor)
+            x, edge_index, pos, batch = self.pool(x, edge_index, edge_attr, pos, batch, (n, n))
+            x = x.repeat(1, self.hidden_factor)
 
-        data.x = self._gcn_block(-1, data.x, data.edge_index, data.edge_attr)
-        xs.append(glob.global_mean_pool(data.x, data.batch, data.num_graphs))
+        x = self._gcn_block(-1, x, edge_index, edge_attr)
+        xs.append(glob.global_mean_pool(x, batch, b))
 
         out = torch.cat(xs, dim=-1)
         out = self.lin_out(out)
