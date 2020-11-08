@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
 import torch
+from torch import Tensor
 from torch_geometric.utils import get_laplacian
 from torch_sparse import SparseTensor
 
@@ -9,27 +10,27 @@ class Ordering(ABC):
     def __init__(self, descending=True):
         self.descending = descending
 
-    def __call__(self, x: torch.FloatTensor, adj: SparseTensor):
+    def __call__(self, x: Tensor, adj: SparseTensor) -> Tensor:
         perm = torch.argsort(self._compute(x, adj), 0, self.descending)
         rank = torch.zeros_like(perm)
         rank[perm] = torch.arange(rank.size(0), dtype=torch.long, device=rank.device)
         return rank
 
     @abstractmethod
-    def _compute(self, x: torch.FloatTensor, adj: SparseTensor):
+    def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
         raise NotImplementedError
 
 
 class Random(Ordering):
-    def __call__(self, x: torch.FloatTensor, adj: SparseTensor):
+    def __call__(self, x: Tensor, adj: SparseTensor) -> Tensor:
         return self._compute(x, adj)
 
-    def _compute(self, x: torch.FloatTensor, adj: SparseTensor):
+    def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
         return torch.randperm(adj.size(0), device=adj.device())
 
 
 class Degree(Ordering):
-    def _compute(self, x: torch.FloatTensor, adj: SparseTensor):
+    def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
         return adj.sum(1).view(-1)
 
 
@@ -38,7 +39,7 @@ class KPaths(Ordering):
         super(KPaths, self).__init__(descending)
         self.k = k
 
-    def _compute(self, x: torch.FloatTensor, adj: SparseTensor):
+    def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
         k_paths = torch.ones((adj.size(1), 1), dtype=torch.float, device=adj.device())
 
         for _ in range(self.k):
@@ -52,7 +53,7 @@ class Curvature(Ordering):
         super(Curvature, self).__init__(descending)
         self.normalization = normalization
 
-    def _compute(self, x: torch.FloatTensor, adj: SparseTensor):
+    def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
         row, col, val = adj.coo()
         lap_idx, lap_val = get_laplacian(torch.stack((row, col)), val,
                                          self.normalization, num_nodes=adj.size(0))
@@ -61,5 +62,10 @@ class Curvature(Ordering):
 
 
 class Norm(Ordering):
-    def _compute(self, x: torch.FloatTensor, adj: SparseTensor):
+    def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
         return torch.norm(x, p=2, dim=-1)
+
+
+class Value(Ordering):
+    def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
+        return torch.max(x, dim=-1)[0]
