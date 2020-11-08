@@ -67,26 +67,35 @@ def sparse_matrix_power(matrix: SparseTensor, p: int = 2, min_sum: bool = False)
     return _mat_pow(matrix, p)
 
 
-def maximal_independent_set(adj: SparseTensor, rank: OptTensor = None) -> Tensor:
-    row, col, _ = adj.coo()
+def maximal_k_independent_set(adj: SparseTensor, k: int = 1,
+                              rank: OptTensor = None) -> Tensor:
     n, device = adj.size(0), adj.device()
+    adj = adj.fill_value(1).fill_diag(1)
 
     if rank is None:
         rank = torch.arange(n, dtype=torch.long, device=device)
 
-    # Remove self-loops (should not be a problem if there are no ties)
-    edge_mask = ~torch.eq(row, col)
-    row, col = row[edge_mask], col[edge_mask]
-
     mis = torch.zeros(n, dtype=torch.bool, device=device)
-    excl = torch.zeros_like(mis)
-    edge_mask = torch.lt(rank[row], rank[col])
-    mask = scatter_and(edge_mask, row, out=torch.ones_like(mis))
+    mask = mis.clone()
+    rank = rank.unsqueeze(-1)
+    min_rank = rank.clone()
 
-    while mask.any():
-        mis |= mask
-        excl = mis | scatter_or(mis[row], col, out=excl)
-        edge_mask = torch.lt(rank[row], rank[col]) | excl[col]
-        mask = scatter_and(edge_mask, row, out=~excl)
+    while not mask.all():
+        for _ in range(k):
+            min_rank = adj.matmul(min_rank, reduce='min')
+
+        mis = mis | (torch.le(rank, min_rank).squeeze(-1) & ~mask)
+        mask = mis.long().unsqueeze(-1)
+
+        for _ in range(k):
+            mask = adj.matmul(mask, reduce='max')
+
+        mask = mask.bool().squeeze(-1)
+        min_rank = rank.clone()
+        min_rank[mask] = rank.max()
 
     return mis
+
+
+def maximal_independent_set(adj: SparseTensor, rank: OptTensor = None) -> Tensor:
+    return maximal_k_independent_set(adj, 1, rank)
