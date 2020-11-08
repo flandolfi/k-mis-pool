@@ -1,25 +1,6 @@
 import torch
-from torch_geometric.typing import OptTensor, Optional, Tensor
+from torch_geometric.typing import OptTensor, Tensor
 from torch_sparse import SparseTensor
-from torch_scatter import scatter
-
-
-def scatter_and(src: Tensor, index: Tensor,
-                dim: int = -1, out: OptTensor = None,
-                dim_size: Optional[int] = None) -> Tensor:
-    if out is not None:
-        out = out.to(torch.uint8)
-
-    return scatter(src.to(torch.uint8), index, dim, out, dim_size, "min").to(torch.bool)
-
-
-def scatter_or(src: Tensor, index: Tensor,
-               dim: int = -1, out: OptTensor = None,
-               dim_size: Optional[int] = None) -> Tensor:
-    if out is not None:
-        out = out.to(torch.uint8)
-
-    return scatter(src.to(torch.uint8), index, dim, out, dim_size, "max").to(torch.bool)
 
 
 def sparse_min_sum_mm(lhs: SparseTensor, rhs: SparseTensor) -> SparseTensor:
@@ -70,7 +51,7 @@ def sparse_matrix_power(matrix: SparseTensor, p: int = 2, min_sum: bool = False)
 def maximal_k_independent_set(adj: SparseTensor, k: int = 1,
                               rank: OptTensor = None) -> Tensor:
     n, device = adj.size(0), adj.device()
-    adj = adj.fill_value(1).fill_diag(1)
+    adj = adj.set_diag().set_value(None, layout=None)
 
     if rank is None:
         rank = torch.arange(n, dtype=torch.long, device=device)
