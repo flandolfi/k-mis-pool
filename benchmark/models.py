@@ -39,10 +39,7 @@ class PointNet(nn.Module):
                            add_self_loops=False)
         ])
 
-        self.pool = nn.ModuleList([
-            MISSPool(add_self_loops=True, **pool_kwargs),
-            MISSPool(add_self_loops=False, **pool_kwargs)
-        ])
+        self.pool = MISSPool(add_self_loops=False, **pool_kwargs)
 
         self.mlp = nn.Sequential(
             nn.BatchNorm1d(hidden*16),
@@ -62,12 +59,15 @@ class PointNet(nn.Module):
         )
 
     def forward(self, data):
-        for conv_l, pool_l in zip(self.conv, self.pool):
-            data.x = conv_l(data.x, data.pos, data.edge_index)
-            data = pool_l(data)
+        x, pos, adj = data.x, data.pos, data.edge_index
+        batch, b, n = data.batch, data.num_graphs, data.num_nodes
 
-        out = self.conv[-1](data.x, data.pos, data.edge_index)
-        out = glob.global_max_pool(out, data.batch, data.num_graphs)
+        for gcn in self.conv:
+            x = gcn(x, pos, adj)
+            x, adj, pos, batch = self.pool(x, adj, pos=pos, batch=batch)
+
+        out = self.conv[-1](x, pos, adj)
+        out = glob.global_max_pool(out, batch, b)
         out = self.mlp(out)
 
         return out
@@ -161,7 +161,7 @@ class GNN(nn.Module):
             if self.readout:
                 xs.append(glob.global_mean_pool(x, batch, b))
 
-            x, edge_index, pos, batch = self.pool(x, edge_index, edge_attr, pos, batch, (n, n))
+            x, edge_index, pos, batch = self.pool(x, edge_index, edge_attr, pos, batch)
             x = x.repeat(1, self.hidden_factor)
 
         x = self._gcn_block(-1, x, edge_index, edge_attr)
