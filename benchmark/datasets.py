@@ -4,11 +4,13 @@ import torch
 import numpy as np
 
 from torch_geometric.data import Data, InMemoryDataset
-from torch_geometric.datasets import GNNBenchmarkDataset, ZINC, ModelNet
+from torch_geometric.datasets import GNNBenchmarkDataset, ModelNet
 from torch_geometric.transforms import Compose, FaceToEdge, NormalizeScale
 
 from sklearn.model_selection import StratifiedShuffleSplit
-from skorch.dataset import Dataset
+from sklearn.metrics import accuracy_score, make_scorer
+
+from ogb.graphproppred import PygGraphPropPredDataset, Evaluator
 
 
 class OneHotEncoding:
@@ -50,15 +52,14 @@ class SkorchDataset(torch.utils.data.Dataset):
         return self.X[i], self.y[i]
 
 
-def get_dataset(name='MNIST', root='data/'):
-    if name == 'ZINC':
-        transform = Compose([
-            OneHotEncoding(28, 'x'),
-            OneHotEncoding(4, 'edge_attr')
-        ])
-        return (ZINC(root, subset=True, split=split, pre_transform=transform)
-                for split in ['train', 'val', 'test'])
+def _evaluator_wrapper(evaluator):
+    def _wrapper(y_true, y_pred):
+        return evaluator({'y_true': y_true, 'y_pred': y_pred})[evaluator.eval_metric]
 
+    return _wrapper
+
+
+def get_dataset(name='MNIST', root='./dataset/'):
     if name.startswith('ModelNet'):
         pre_tr = Compose([NormalizeScale(), FaceToEdge(remove_faces=True)])
         train = ModelNet(osp.join(root, name), name=name[8:], train=True, pre_transform=pre_tr)
@@ -72,20 +73,27 @@ def get_dataset(name='MNIST', root='data/'):
         val = CustomDataset([train[int(i)] for i in val_idx])
         train = CustomDataset([train[int(i)] for i in tr_idx])
 
-        return train, val, test
+        return (train, val, test), make_scorer(accuracy_score)
 
-    return (GNNBenchmarkDataset(root, name, split)
-            for split in ['train', 'val', 'test'])
+    if name in {'MNIST', 'CIFAR10'}:
+        return ((GNNBenchmarkDataset(root, name, split)
+                 for split in ['train', 'val', 'test']),
+                make_scorer(accuracy_score))
+
+    dataset = PygGraphPropPredDataset(name, root=root)
+    split_idx = dataset.get_idx_split()
+
+    return ((dataset[split_idx[split]]
+             for split in ['train', 'valid', 'test']),
+            make_scorer(_evaluator_wrapper(Evaluator(name))))
 
 
 def merge_datasets(*datasets):
-    Xs, Ys = [], []
+    splits = []
     n = 0
 
     for ds in datasets:
-        Xs.append(np.arange(n, n + len(ds)))
-        Ys.append(ds.data.y.numpy())
+        splits.append(list(range(n, n + len(ds))))
         n += len(ds)
 
-    return (CustomDataset(sum(map(list, datasets), start=[])),
-            *(Dataset(X, y) for X, y in zip(Xs, Ys)))
+    return CustomDataset(sum(map(list, datasets), start=[])), splits
