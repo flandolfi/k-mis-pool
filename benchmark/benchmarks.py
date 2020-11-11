@@ -206,7 +206,7 @@ def cv(model_name: str, dataset_name: str,
        repetitions: int = 3,
        max_nodes: int = None,
        cv_results_path: str = None,
-       params_path = 'params.pt',
+       params_path: str = 'params.pt',
        **net_kwargs):
     (ds_train, ds_val, ds_test), scorer = get_dataset(dataset_name, root)
     X, [tr_split, val_split] = merge_datasets(ds_train, ds_val)
