@@ -7,8 +7,8 @@ GNN=GraphSAGE
 DIR=./results/
 DS=$1
 
-OPTS="--model_name=$GNN --dataset_name=$DS --batch_size=128" \
-     "--repetitions=4 --module__aggr=add --module__normalize"
+OPTS="--model_name=$GNN --dataset_name=$DS --batch_size=128
+      --repetitions=4 --module__aggr=add --module__normalize"
 
 mkdir -p $DIR
 shift
