@@ -39,10 +39,7 @@ class PointNet(nn.Module):
                            add_self_loops=False)
         ])
 
-        self.pool = nn.ModuleList([
-            MISSPool(add_self_loops=True, **pool_kwargs),
-            MISSPool(add_self_loops=False, **pool_kwargs)
-        ])
+        self.pool = MISSPool(add_self_loops=False, **pool_kwargs)
 
         self.mlp = nn.Sequential(
             nn.BatchNorm1d(hidden*16),
@@ -62,12 +59,15 @@ class PointNet(nn.Module):
         )
 
     def forward(self, data):
-        for conv_l, pool_l in zip(self.conv, self.pool):
-            data.x = conv_l(data.x, data.pos, data.edge_index)
-            data = pool_l(data)
+        x, pos, adj = data.x, data.pos, data.edge_index
+        batch, b, n = data.batch, data.num_graphs, data.num_nodes
 
-        out = self.conv[-1](data.x, data.pos, data.edge_index)
-        out = glob.global_max_pool(out, data.batch, data.num_graphs)
+        for gcn in self.conv:
+            x = gcn(x, pos, adj)
+            x, adj, pos, batch = self.pool(x, adj, pos=pos, batch=batch)
+
+        out = self.conv[-1](x, pos, adj)
+        out = glob.global_max_pool(out, batch, b)
         out = self.mlp(out)
 
         return out
@@ -144,28 +144,28 @@ class GNN(nn.Module):
         return x
 
     def forward(self, data):
-        if data.x is None:
-            data.x = data.pos
-        elif data.pos is not None:
-            data.x = torch.cat([data.x, data.pos], dim=-1)
+        x, pos, batch, n, b = data.x, data.pos, data.batch, data.num_nodes, data.num_graphs
+        edge_index, edge_attr = add_self_loops(data.edge_index, data.edge_attr, num_nodes=n)
+        
+        if x is None:
+            x = pos
+        elif pos is not None:
+            x = torch.cat([x, pos], dim=-1)
 
-        data.pos = None
-        data.edge_index, data.edge_attr = add_self_loops(data.edge_index, data.edge_attr,
-                                                         num_nodes=data.num_nodes)
-        data.x = self.lin_in(data.x)
+        x = self.lin_in(x)
         xs = []
 
         for idx in range(self.blocks - 1):
-            data.x = self._gcn_block(idx, data.x, data.edge_index, data.edge_attr)
+            x = self._gcn_block(idx, x, edge_index, edge_attr)
 
             if self.readout:
-                xs.append(glob.global_mean_pool(data.x, data.batch, data.num_graphs))
+                xs.append(glob.global_mean_pool(x, batch, b))
 
-            data = self.pool(data)
-            data.x = data.x.repeat(1, self.hidden_factor)
+            x, edge_index, pos, batch = self.pool(x, edge_index, edge_attr, pos, batch)
+            x = x.repeat(1, self.hidden_factor)
 
-        data.x = self._gcn_block(-1, data.x, data.edge_index, data.edge_attr)
-        xs.append(glob.global_mean_pool(data.x, data.batch, data.num_graphs))
+        x = self._gcn_block(-1, x, edge_index, edge_attr)
+        xs.append(glob.global_mean_pool(x, batch, b))
 
         out = torch.cat(xs, dim=-1)
         out = self.lin_out(out)

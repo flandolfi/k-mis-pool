@@ -1,26 +1,24 @@
 import torch
-from torch import Tensor
+
 from torch_geometric.nn.conv import MessagePassing
-from torch_geometric.data import Batch, Data
-from torch_geometric.typing import Tuple, OptTensor, OptPairTensor
+from torch_geometric.typing import Adj, Tensor, Tuple, OptTensor, Size
 from torch_sparse import SparseTensor
 
 from miss import kernels, orderings, utils
 
 
 class MISSPool(MessagePassing):
-    def __init__(self, pool_size=1, stride=None, aggr='mean', weighted_aggr=False, add_self_loops=True,
-                 ordering='min-curvature', order_on='stride', distances=False, kernel=None):
-        super(MISSPool, self).__init__()
+    propagate_type = {'x': Tensor}
+
+    def __init__(self, pool_size=1, stride=None, aggr='mean', ordering='random',
+                 add_self_loops=True, normalize=False, distances=False, kernel=None):
+        super(MISSPool, self).__init__(aggr=aggr)
 
         self.pool_size = pool_size
         self.stride = stride if stride else pool_size
-        self.normalize = weighted_aggr and aggr == 'mean'
-        self.aggr = 'add' if self.normalize else aggr
-        self.weighted_aggr = weighted_aggr
         self.add_self_loops = add_self_loops
-        self.ordering = self._get_ordering(ordering)
-        self.order_on = order_on
+        self.ordering: orderings.Ordering = self._get_ordering(ordering)
+        self.normalize = normalize
         self.distances = distances
         self.kernel = kernel
 
@@ -28,13 +26,9 @@ class MISSPool(MessagePassing):
             self.kernel = getattr(kernels, kernel.title().replace('-', ''))()
 
         if self.distances:
-            self.fuse = False
             self._mat_mul = utils.sparse_min_sum_mm
         else:
             self._mat_mul = SparseTensor.matmul
-
-            if self.aggr == 'max':
-                self.fuse = False
 
     @staticmethod
     def _get_ordering(ordering):
@@ -54,82 +48,77 @@ class MISSPool(MessagePassing):
             opts['descending'] = tokens[0] == 'max'
             tokens = tokens[1:]
 
+        if tokens[-1] == 'paths':
+            opts['k'] = int(tokens[0])
+            tokens[0] = 'k'
+
         return getattr(orderings, ''.join(t.title() for t in tokens))(**opts)
 
-    def _compute_paths(self, adj: SparseTensor, p: int, s: int) -> Tuple[SparseTensor, SparseTensor]:
-        if p < s:
-            return self._compute_paths(adj, s, p)[::-1]
+    def pool(self, adj: SparseTensor, mis: Tensor,
+             x: OptTensor = None, pos: OptTensor = None) -> Tuple[OptTensor, OptTensor]:
+        if self.kernel is not None:
+            adj = adj.set_value(self.kernel(adj.storage.value()))
 
-        if p == s:
-            adj_pow = utils.sparse_matrix_power(adj, p, self.distances)
-            return adj_pow, adj_pow.clone()
-
-        adj_p, adj_s = self._compute_paths(adj, p - s, s // 2)
-        adj_s = self._mat_mul(adj_s, adj_s)
-
-        if s % 2 == 1:
-            adj_s = self._mat_mul(adj_s, adj)
-
-        return self._mat_mul(adj_p, adj_s), adj_s
-
-    def pool(self, adj: SparseTensor, x: OptTensor = None, pos: OptTensor = None) -> OptPairTensor:
         if x is not None:
-            x = self.propagate(edge_index=adj, x=x)
+            for _ in range(self.pool_size):
+                x = self.propagate(edge_index=adj, x=x)
+
+            x = x[mis]
 
         if pos is not None:
-            pos = self.propagate(edge_index=adj, x=pos)
+            for _ in range(self.pool_size):
+                pos = self.propagate(edge_index=adj, x=pos)
+
+            pos = pos[mis]
 
         return x, pos
 
-    def coarsen(self, adj: SparseTensor, adj_s: SparseTensor) -> SparseTensor:
+    def coarsen(self, adj: SparseTensor, mis: Tensor) -> SparseTensor:
+        adj_s = adj[mis]
+
+        for _ in range(1, self.stride):
+            adj_s = self._mat_mul(adj_s, adj)
+
         return self._mat_mul(self._mat_mul(adj_s, adj), adj_s.t())
 
-    def forward(self, data: Data):
-        x, pos, n = data.x, data.pos, data.num_nodes
-        (row, col), val = data.edge_index, data.edge_attr
-
-        if val is None:
-            val = torch.ones_like(row, dtype=torch.float)
-
-        adj = SparseTensor(row=row, col=col, value=val, sparse_sizes=(n, n))
-
+    def forward(self, x: OptTensor, edge_index: Adj,
+                edge_attr: OptTensor = None,
+                pos: OptTensor = None,
+                batch: OptTensor = None,
+                size: Size = None) -> Tuple[OptTensor, Adj, OptTensor, OptTensor]:
+        adj: Adj = edge_index
+        
+        if isinstance(adj, Tensor):
+            if size is None:
+                if x is not None:
+                    n = x.size(0)
+                elif pos is not None:
+                    n = pos.size(0)
+                elif batch is not None:
+                    n = batch.size(0)
+                else:
+                    n = int(edge_index.max()) + 1
+                size = (n, n)
+                
+            adj = SparseTensor.from_edge_index(edge_index, edge_attr, size)
+        
         if self.add_self_loops:
             adj = adj.fill_diag(int(not self.distances))
-
+        
         if self.normalize:
             deg = adj.sum(-1).unsqueeze(-1)
             adj *= torch.where(deg == 0, torch.zeros_like(deg), 1. / deg)
-
-        adj_p, adj_s = self._compute_paths(adj, self.pool_size, self.stride)
-
-        if self.kernel is not None:
-            adj_p = adj_p.set_value(self.kernel(adj_p.storage.value()))
-
-        perm = None
-
-        if self.ordering is not None:
-            if self.order_on == "pool":
-                perm = self.ordering(x, adj_p)
-            elif self.order_on == "stride":
-                perm = self.ordering(x, adj_s)
-            else:
-                perm = self.ordering(x, adj)
-
-        mask = utils.maximal_independent_set(adj_s, perm)
-        adj_p = adj_p[mask]
-        adj_s = adj_s[mask]
-
-        x_out, pos_out = self.pool(adj_p, x, pos)
-        r_out, c_out, v_out = self.coarsen(adj, adj_s).coo()
-        batch_out = data['batch'][mask] if 'batch' in data else None
-
-        return Batch(x=x_out, pos=pos_out,
-                     edge_index=torch.stack((r_out, c_out)),
-                     edge_attr=v_out,
-                     batch=batch_out)
-
-    def message(self, x_j, edge_attr):  # noqa
-        return x_j * edge_attr.view((-1, 1)) if self.weighted_aggr else x_j
+        
+        perm = None if self.ordering is None else self.ordering(x, adj)
+        mis = utils.maximal_k_independent_set(adj, self.stride, perm)
+        
+        x, pos = self.pool(adj, mis, x, pos)
+        adj = self.coarsen(adj, mis)
+        
+        if batch is not None:
+            batch = batch[mis]
+        
+        return x, adj, pos, batch
 
     def message_and_aggregate(self, adj_t: SparseTensor, x: Tensor) -> Tensor:  # noqa
-        return adj_t @ x
+        return adj_t.matmul(x, reduce=self.aggr)
