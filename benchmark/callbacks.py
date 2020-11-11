@@ -11,7 +11,7 @@ class LateStopping(Callback):
     def on_train_begin(self, *args, **kwargs):
         self.start = datetime.now()
 
-    def on_epoch_end(self, *args, **kwargs):
+    def on_epoch_end(self, net, *args, **kwargs):
         delta = datetime.now() - self.start
 
         if delta > self.timedelta:
