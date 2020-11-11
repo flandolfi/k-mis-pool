@@ -194,8 +194,8 @@ def grid_search(model_name: str, dataset_name: str,
 
 def count_params(model_name: str, dataset_name: str,
                  root: str = './dataset/', **net_kwargs):
-    dataset, _, _ = get_dataset(dataset_name, root)
-    net = get_net(model_name, dataset, **net_kwargs)
+    (dataset, _, _), scorer = get_dataset(dataset_name, root)
+    net = get_net(model_name, dataset, scorer, **net_kwargs)
     net.initialize()
 
     return sum(p.numel() for p in net.module_.parameters() if p.requires_grad)
