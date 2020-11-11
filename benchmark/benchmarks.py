@@ -1,4 +1,5 @@
 import math
+import warnings
 from typing import Union
 
 import fire
@@ -7,12 +8,12 @@ import pandas as pd
 from tqdm import tqdm
 
 import torch
-from torch.nn.modules.loss import SmoothL1Loss, CrossEntropyLoss
+from torch.nn.modules.loss import BCEWithLogitsLoss, CrossEntropyLoss
 
 from torch_geometric.data import DataLoader, Data
 
 import skorch
-from skorch import NeuralNetClassifier, NeuralNetRegressor
+from skorch import NeuralNetClassifier, NeuralNetBinaryClassifier
 from skorch.callbacks import EpochScoring, LRScheduler, ProgressBar, Checkpoint
 
 from benchmark import models
@@ -45,6 +46,7 @@ if torch.cuda.is_available():
     device = 'cuda'
 
 skorch.net.to_tensor = _to_tensor_wrapper(skorch.net.to_tensor)
+warnings.filterwarnings("ignore", category=UserWarning)
 
 
 DEFAULT_NET_PARAMS = {
@@ -79,7 +81,7 @@ DEFAULT_GRID_PARAMS = [{
 }]
 
 
-def get_scorer(score_name='valid_acc'):
+def get_scorer(score_name='valid_score'):
     def scorer(net, X, y=None):
         best_epoch = np.argwhere(net.history[:, f'{score_name}_best'])[-1, 0]
         return net.history[best_epoch, score_name]
@@ -87,34 +89,42 @@ def get_scorer(score_name='valid_acc'):
     return scorer
 
 
-def get_net(name, module__dataset, **net_kwargs):
+def get_net(name, module__dataset, scorer, **net_kwargs):
     module = getattr(models, name)
-    regression = module__dataset.data.y.dtype == torch.float
 
-    if regression:
-        net_cls = NeuralNetRegressor
-        criterion = SmoothL1Loss
-        score_name = 'valid_mae'
-        net_kwargs.setdefault("callbacks", [])
-        net_kwargs.update({
-            'callbacks': [(score_name, EpochScoring)] + net_kwargs["callbacks"],
-            f'callbacks__{score_name}__scoring': 'neg_mean_absolute_error',
-            f'callbacks__{score_name}__lower_is_better': False,
-            f'callbacks__{score_name}__on_train': False,
-            f'callbacks__{score_name}__name': score_name
-        })
-    else:
-        net_cls = NeuralNetClassifier
+    net_kwargs.setdefault("callbacks", [])
+    net_kwargs.update({
+        'callbacks': [
+            ('train_score', EpochScoring(
+                scoring=scorer,
+                name='train_score',
+                lower_is_better=False,
+                on_train=True
+            )),
+            ('valid_score', EpochScoring(
+                scoring=scorer,
+                name='valid_score',
+                lower_is_better=False,
+                on_train=False
+            ))
+        ] + net_kwargs["callbacks"],
+    })
+
+    if not hasattr(module__dataset, 'num_tasks') or module__dataset.num_tasks == 1:
         criterion = CrossEntropyLoss
-        score_name = 'valid_acc'
+        net_cls = NeuralNetClassifier
+    else:
+        criterion = BCEWithLogitsLoss
+        net_cls = NeuralNetBinaryClassifier
 
-    net_cls.score = get_scorer(score_name)
+    net_cls.score = get_scorer('valid_score')
     net = net_cls(
         module=module,
         module__dataset=module__dataset,
         criterion=criterion,
         **net_kwargs
     )
+    net.set_params(callbacks__valid_acc=None)
 
     return net
 
@@ -126,7 +136,7 @@ def cv_iter(train_idx, val_idx, repetitions=3):
 
 def grid_search(model_name: str, dataset_name: str,
                 param_grid: Union[list, dict] = None,
-                root: str = './data/',
+                root: str = './dataset/',
                 repetitions: int = 3,
                 max_nodes: int = None,
                 cv_results_path: str = None,
@@ -138,41 +148,41 @@ def grid_search(model_name: str, dataset_name: str,
 
     total = sum([math.prod(map(len, grid.values())) for grid in param_grid])
     pbar = tqdm(total=total*repetitions, leave=False, desc='Grid Search')
-    dataset, tr_split, val_split, _ = merge_datasets(*get_dataset(dataset_name, root))
+
+    (ds_train, ds_val, ds_test), scorer = get_dataset(dataset_name, root)
+    X, [tr_split, val_split] = merge_datasets(ds_train, ds_val)
 
     if max_nodes is not None:
-        dataset.transform = MISSampling(max_nodes)
+        X.transform = ds_test.transform = MISSampling(max_nodes)
 
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update({
         'callbacks': [
-                         ('progress_bar', ProgressBar),
-                         ('late_stopping', LateStopping),
-                         ('lr_scheduler', LRScheduler),
-                         ('lr_lower_bound', LRLowerBound)
-                     ],
+            ('progress_bar', ProgressBar),
+            ('late_stopping', LateStopping),
+            ('lr_scheduler', LRScheduler),
+            ('lr_lower_bound', LRLowerBound)
+        ],
         'callbacks__print_log__sink': pbar.write,
         'callbacks__late_stopping__sink': pbar.write,
         'callbacks__lr_lower_bound__sink': pbar.write,
     })
     opts.update(net_kwargs)
-    net = get_net(model_name, dataset, **opts)
+    net = get_net(model_name, X, scorer, **opts)
 
     def _score_wrapper():
-        def scorer(estimator, X, y=None):
+        def _wrapper(estimator, X, y=None):
             pbar.update()
             return estimator.score(X, y)
 
-        return scorer
+        return _wrapper
 
     gs = GridSearchCV(net, param_grid,
                       scoring=_score_wrapper(),
                       refit=False,
                       verbose=False,
-                      cv=cv_iter(tr_split.X.tolist(),
-                                 val_split.X.tolist(),
-                                 repetitions))
-    gs.fit(dataset, dataset.data.y)
+                      cv=cv_iter(tr_split, val_split, repetitions))
+    gs.fit(X, X.data.y)
     pbar.close()
 
     if cv_results_path is not None:
@@ -183,7 +193,7 @@ def grid_search(model_name: str, dataset_name: str,
 
 
 def count_params(model_name: str, dataset_name: str,
-                 root: str = './data/', **net_kwargs):
+                 root: str = './dataset/', **net_kwargs):
     dataset, _, _ = get_dataset(dataset_name, root)
     net = get_net(model_name, dataset, **net_kwargs)
     net.initialize()
@@ -192,15 +202,17 @@ def count_params(model_name: str, dataset_name: str,
 
 
 def cv(model_name: str, dataset_name: str,
-       root: str = './data/',
+       root: str = './dataset/',
        repetitions: int = 3,
        max_nodes: int = None,
        cv_results_path: str = None,
+       params_path = 'params.pt',
        **net_kwargs):
-    dataset, tr_split, val_split, test_split = merge_datasets(*get_dataset(dataset_name, root))
+    (ds_train, ds_val, ds_test), scorer = get_dataset(dataset_name, root)
+    X, [tr_split, val_split] = merge_datasets(ds_train, ds_val)
 
     if max_nodes is not None:
-        dataset.transform = MISSampling(max_nodes)
+        X.transform = ds_test.transform = MISSampling(max_nodes)
 
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update({
@@ -211,32 +223,29 @@ def cv(model_name: str, dataset_name: str,
             ('lr_scheduler', LRScheduler),
             ('lr_lower_bound', LRLowerBound),
         ],
-        'callbacks__checkpoint__monitor': 'valid_acc_best',
-        'callbacks__checkpoint__f_params': 'params.pt',
+        'callbacks__checkpoint__monitor': 'valid_score_best',
+        'callbacks__checkpoint__f_params': params_path,
         'callbacks__checkpoint__f_optimizer': None,
         'callbacks__checkpoint__f_criterion': None,
         'callbacks__checkpoint__f_history': None,
         'callbacks__checkpoint__f_pickle': None,
     })
     opts.update(net_kwargs)
-    net = get_net(model_name, dataset, **opts)
+    net = get_net(model_name, X, scorer, **opts)
 
     def _score_wrapper():
-        test_X = dataset[test_split.X.tolist()]
-        test_y = dataset.data.y[test_split.X.tolist()]
+        y_true = ds_test.data.y
 
-        def scorer(estimator, X, y=None):
-            estimator.load_params('params.pt')
-            return estimator.score(test_X, test_y)
+        def _wrapper(estimator, X, y=None):
+            estimator.load_params(params_path)
+            return estimator.score(ds_test, y_true)
 
-        return scorer
+        return _wrapper
 
-    scores = cross_validate(net, dataset, dataset.data.y,
+    scores = cross_validate(net, X, X.data.y,
                             scoring=_score_wrapper(),
                             return_train_score=True,
-                            cv=cv_iter(tr_split.X.tolist(),
-                                       val_split.X.tolist(),
-                                       repetitions))
+                            cv=cv_iter(tr_split, val_split, repetitions))
 
     if cv_results_path is not None:
         df = pd.DataFrame.from_records(scores)
