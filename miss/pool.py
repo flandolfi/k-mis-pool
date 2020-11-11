@@ -44,7 +44,7 @@ class MISSPool(MessagePassing):
         tokens = ordering.split('-')
         opts = {'descending': True}
 
-        if tokens[0] in {'min', 'max'}:
+        if len(tokens) > 1 and tokens[0] in {'min', 'max'}:
             opts['descending'] = tokens[0] == 'max'
             tokens = tokens[1:]
 
@@ -52,7 +52,12 @@ class MISSPool(MessagePassing):
             opts['k'] = int(tokens[0])
             tokens[0] = 'k'
 
-        return getattr(orderings, ''.join(t.title() for t in tokens))(**opts)
+        cls_name = ''.join(t.title() for t in tokens)
+
+        if not hasattr(orderings, cls_name):
+            return orderings.Lambda(getattr(torch, tokens[-1]), **opts)
+
+        return getattr(orderings, cls_name)(**opts)
 
     def pool(self, adj: SparseTensor, mis: Tensor,
              x: OptTensor = None, pos: OptTensor = None) -> Tuple[OptTensor, OptTensor]:

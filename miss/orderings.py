@@ -61,11 +61,17 @@ class Curvature(Ordering):
         return 0.5*torch.norm(lap @ x, p=2, dim=-1)
 
 
-class Norm(Ordering):
-    def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
-        return torch.norm(x, p=2, dim=-1)
+class Lambda(Ordering):
+    def __init__(self, function, dim=-1, descending=True, **kwargs):
+        super(Lambda, self).__init__(descending)
+        self.function = function
+        self.dim = dim
+        self.kwargs = kwargs
 
-
-class Value(Ordering):
     def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
-        return torch.max(x, dim=-1)[0]
+        out = self.function(x, dim=self.dim, **self.kwargs)
+
+        if isinstance(out, tuple):
+            return out[0]
+
+        return out
