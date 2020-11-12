@@ -1,5 +1,6 @@
 import math
 import warnings
+import tempfile
 from typing import Union
 
 import fire
@@ -206,10 +207,10 @@ def cv(model_name: str, dataset_name: str,
        repetitions: int = 3,
        max_nodes: int = None,
        cv_results_path: str = None,
-       params_path: str = 'params.pt',
        **net_kwargs):
     (ds_train, ds_val, ds_test), scorer = get_dataset(dataset_name, root)
     X, [tr_split, val_split] = merge_datasets(ds_train, ds_val)
+    tmp_fd = tempfile.NamedTemporaryFile(suffix='.pt')
 
     if max_nodes is not None:
         X.transform = ds_test.transform = MISSampling(max_nodes)
@@ -224,7 +225,7 @@ def cv(model_name: str, dataset_name: str,
             ('lr_lower_bound', LRLowerBound),
         ],
         'callbacks__checkpoint__monitor': 'valid_score_best',
-        'callbacks__checkpoint__f_params': params_path,
+        'callbacks__checkpoint__f_params': tmp_fd.name,
         'callbacks__checkpoint__f_optimizer': None,
         'callbacks__checkpoint__f_criterion': None,
         'callbacks__checkpoint__f_history': None,
@@ -233,25 +234,26 @@ def cv(model_name: str, dataset_name: str,
     opts.update(net_kwargs)
     net = get_net(model_name, X, scorer, **opts)
 
-    def _score_wrapper():
-        y_true = ds_test.data.y
+    def _get_test_scorer():
+        X_test = SkorchDataset(ds_test, ds_test.data.y)
 
-        def _wrapper(estimator, X, y=None):
-            estimator.load_params(params_path)
-            return estimator.score(ds_test, y_true)
+        def _test_scorer(net, X, y):
+            net.load_params(tmp_fd.name)
+            return scorer(net, X_test, X_test.y)
 
-        return _wrapper
+        return _test_scorer
 
     scores = cross_validate(net, X, X.data.y,
-                            scoring=_score_wrapper(),
+                            scoring=_get_test_scorer(),
                             return_train_score=True,
                             cv=cv_iter(tr_split, val_split, repetitions))
+    tmp_fd.close()
 
     if cv_results_path is not None:
         df = pd.DataFrame.from_records(scores)
         df.to_csv(cv_results_path, sep='\t')
 
-    return scores
+    return {k: list(v) for k, v in scores.items()}
 
 
 if __name__ == "__main__":
