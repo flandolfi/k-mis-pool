@@ -86,13 +86,13 @@ class MISSPool(MessagePassing):
 
         return self._mat_mul(self._mat_mul(adj_s, adj), adj_s.t())
 
-    def forward(self, x: OptTensor, edge_index: Adj,
-                edge_attr: OptTensor = None,
-                pos: OptTensor = None,
-                batch: OptTensor = None,
-                size: Size = None) -> Tuple[OptTensor, Adj, OptTensor, OptTensor]:
+    def _get_adj(self, x: OptTensor, edge_index: Adj,
+                 edge_attr: OptTensor = None,
+                 pos: OptTensor = None,
+                 batch: OptTensor = None,
+                 size: Size = None) -> Adj:
         adj: Adj = edge_index
-        
+
         if isinstance(adj, Tensor):
             if size is None:
                 if x is not None:
@@ -104,17 +104,26 @@ class MISSPool(MessagePassing):
                 else:
                     n = int(edge_index.max()) + 1
                 size = (n, n)
-                
+
             adj = SparseTensor.from_edge_index(edge_index, edge_attr, size)
-        
+
         if self.add_self_loops:
             adj = adj.fill_diag(float(not self.distances))
-        
+
         if self.normalize:
             deg = adj.sum(-1).unsqueeze(-1)
             adj *= torch.where(deg == 0, torch.zeros_like(deg), 1. / deg)
-        
+
+        return adj
+
+    def forward(self, x: OptTensor, edge_index: Adj,
+                edge_attr: OptTensor = None,
+                pos: OptTensor = None,
+                batch: OptTensor = None,
+                size: Size = None) -> Tuple[OptTensor, Adj, OptTensor, OptTensor]:
+        adj = self._get_adj(x, edge_index, edge_attr, pos, batch, size)
         perm = None if self.ordering is None else self.ordering(x, adj)
+
         mis = utils.maximal_k_independent_set(adj, self.stride, perm)
         
         x, pos = self.pool(adj, mis, x, pos)
