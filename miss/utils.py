@@ -1,5 +1,5 @@
 import torch
-from torch_geometric.typing import OptTensor, Tensor
+from torch_geometric.typing import OptTensor, Tensor, Tuple
 from torch_sparse import SparseTensor
 
 
@@ -80,3 +80,22 @@ def maximal_k_independent_set(adj: SparseTensor, k: int = 1,
 
 def maximal_independent_set(adj: SparseTensor, rank: OptTensor = None) -> Tensor:
     return maximal_k_independent_set(adj, 1, rank)
+
+
+def geodesic_fps(adj: SparseTensor, max_nodes: int, rank: OptTensor = None) -> Tuple[Tensor, int]:
+    n, device = adj.size(0), adj.device()
+    adj = adj.set_value(None, layout=None).set_diag()
+
+    if rank is None:
+        rank = torch.arange(n, dtype=torch.long, device=device)
+
+    rank = rank.unsqueeze(-1)
+    min_rank = rank.clone()
+    stride = 0
+
+    while n > max_nodes:
+        min_rank = adj.matmul(min_rank, reduce='min')
+        n = min_rank.unique(dtype=torch.long).size(0)
+        stride += 1
+
+    return torch.eq(rank, min_rank).view(-1), stride
