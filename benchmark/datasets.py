@@ -54,7 +54,12 @@ class SkorchDataset(torch.utils.data.Dataset):
 
 def _evaluator_wrapper(evaluator):
     def _wrapper(y_true, y_pred):
-        return evaluator({'y_true': y_true, 'y_pred': y_pred})[evaluator.eval_metric]
+        if y_true.ndim == 1:
+            y_true = y_true.reshape(-1, 1)
+        if y_pred.ndim == 1:
+            y_pred = y_pred.reshape(-1, 1)
+
+        return evaluator.eval({'y_true': y_true, 'y_pred': y_pred})[evaluator.eval_metric]
 
     return _wrapper
 
@@ -80,7 +85,16 @@ def get_dataset(name='MNIST', root='./dataset/'):
                  for split in ['train', 'val', 'test']),
                 make_scorer(accuracy_score))
 
-    dataset = PygGraphPropPredDataset(name, root=root)
+    pre_transform = None
+
+    if name == "ogbg-molhiv":
+        def _flatten_y(data):
+            data.y = data.y[0]
+            return data
+
+        pre_transform = _flatten_y
+
+    dataset = PygGraphPropPredDataset(name, root=root, pre_transform=pre_transform)
     split_idx = dataset.get_idx_split()
 
     return ((dataset[split_idx[split]]
