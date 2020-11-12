@@ -17,9 +17,9 @@ def sparse_min_sum_mm(lhs: SparseTensor, rhs: SparseTensor) -> SparseTensor:
     perm = torch.arange(r_row.size(0)).split(r_row_count.tolist())
     perm = torch.cat([t.repeat(r) for t, r in zip(perm, l_col_count)])
 
-    o_row = l_row.repeat_interleave(rep)
+    o_row = l_row.repeat_interleave(rep, dim=0)
     o_col = r_col[perm]
-    o_val = l_val.repeat_interleave(rep) + r_val[perm]
+    o_val = l_val.repeat_interleave(rep, dim=0) + r_val[perm]
 
     return SparseTensor(
             row=o_row, col=o_col, value=o_val,
@@ -51,7 +51,7 @@ def sparse_matrix_power(matrix: SparseTensor, p: int = 2, min_sum: bool = False)
 def maximal_k_independent_set(adj: SparseTensor, k: int = 1,
                               rank: OptTensor = None) -> Tensor:
     n, device = adj.size(0), adj.device()
-    adj = adj.set_diag().set_value(None, layout=None)
+    adj = adj.set_value(None, layout=None).set_diag()
 
     if rank is None:
         rank = torch.arange(n, dtype=torch.long, device=device)
