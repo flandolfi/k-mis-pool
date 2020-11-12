@@ -108,7 +108,7 @@ class MISSPool(MessagePassing):
             adj = SparseTensor.from_edge_index(edge_index, edge_attr, size)
         
         if self.add_self_loops:
-            adj = adj.fill_diag(int(not self.distances))
+            adj = adj.fill_diag(float(not self.distances))
         
         if self.normalize:
             deg = adj.sum(-1).unsqueeze(-1)
