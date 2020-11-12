@@ -83,7 +83,7 @@ class PointNet(nn.Module):
 
 
 class GNN(nn.Module):
-    def __init__(self, dataset, gnn="GCNConv",
+    def __init__(self, dataset: Dataset, gnn="GCNConv",
                  hidden=146, num_layers=4, blocks=1,
                  hidden_factor=1, readout=False,
                  **pool_kwargs):
@@ -118,6 +118,9 @@ class GNN(nn.Module):
                 gnn_kwargs['aggr'] = 'max'
             else:
                 gnn_kwargs['train_eps'] = True
+
+                if gnn is conv.GINEConv:
+                    self.has_weights = True
             
             def gnn(channels_in, channels_out, **kwargs):
                 return gnn_cls(MLP(channels_in, 2*channels_in, channels_out, batch_norm=True), **kwargs)
@@ -184,6 +187,11 @@ class GNN(nn.Module):
 class GCN(GNN):
     def __init__(self, *args, **kwargs):
         super(GCN, self).__init__(gnn="GCNConv", *args, **kwargs)
+
+
+class GIN(GNN):
+    def __init__(self, dataset, hidden=90, *args, **kwargs):
+        super(GIN, self).__init__(dataset, gnn="GINConv", hidden=hidden, *args, **kwargs)  # noqa
 
 
 class GraphSAGEConv(conv.SAGEConv):
