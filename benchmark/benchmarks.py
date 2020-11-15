@@ -245,7 +245,6 @@ def cv(model_name: str, dataset_name: str,
 
     scores = cross_validate(net, X, X.data.y,
                             scoring=_get_test_scorer(),
-                            return_train_score=True,
                             cv=cv_iter(tr_split, val_split, repetitions))
     tmp_fd.close()
 
