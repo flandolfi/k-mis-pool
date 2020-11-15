@@ -18,6 +18,6 @@ for ORDER in random max-norm max-curvature min-curvature min-degree; do
         --cv_results_path=$DIR/${GNN}_L2_${DS}_${ORDER}_CV.csv \
         --module__blocks=2 --module__hidden=106 --module__ordering=$ORDER $@
     python -m benchmark.benchmarks cv $OPTS \
-        --cv_results_path=$DIR/${GNN}_L2_${DS}_${ORDER}_CV.csv \
-        --module__blocks=2 --module__hidden=198 --module__ordering=$ORDER $@
+        --cv_results_path=$DIR/${GNN}_L3_${DS}_${ORDER}_CV.csv \
+        --module__blocks=3 --module__hidden=198 --module__ordering=$ORDER $@
 done
