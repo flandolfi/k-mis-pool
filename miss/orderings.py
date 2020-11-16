@@ -5,16 +5,15 @@ from torch import Tensor
 from torch_geometric.utils import get_laplacian
 from torch_sparse import SparseTensor
 
+from miss.utils import get_ranking
+
 
 class Ordering(ABC):
     def __init__(self, descending=True):
         self.descending = descending
 
     def __call__(self, x: Tensor, adj: SparseTensor) -> Tensor:
-        perm = torch.argsort(self._compute(x, adj), 0, self.descending)
-        rank = torch.zeros_like(perm)
-        rank[perm] = torch.arange(rank.size(0), dtype=torch.long, device=rank.device)
-        return rank
+        return get_ranking(self._compute(x, adj), self.descending)
 
     @abstractmethod
     def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:

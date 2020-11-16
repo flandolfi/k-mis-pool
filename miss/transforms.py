@@ -8,7 +8,7 @@ from torch_sparse import SparseTensor
 from networkx.algorithms import centrality as nxc
 
 from miss.pool import MISSPool
-from miss.utils import geodesic_fps
+from miss.utils import maximal_independent_sample
 
 
 class Permute(object):
@@ -46,13 +46,14 @@ class Permute(object):
 
 
 class MISSampling(MISSPool):
-    def __init__(self, max_nodes=4096, pool_ratio=1., aggr='mean', ordering="random",
-                 add_self_loops=True, normalize=False, distances=False, kernel=None):
-        super(MISSampling, self).__init__(pool_size=1, aggr=aggr, ordering=ordering,
-                                          add_self_loops=add_self_loops, normalize=normalize,
-                                          distances=distances, kernel=kernel)
+    def __init__(self, max_nodes=4096, pool_ratio=1., runs=16, max_iterations=1,
+                 aggr='mean', add_self_loops=True, normalize=False, distances=False, kernel=None):
+        super(MISSampling, self).__init__(pool_size=1, aggr=aggr, add_self_loops=add_self_loops,
+                                          normalize=normalize, distances=distances, kernel=kernel)
         self.max_nodes = max_nodes
         self.pool_ratio = pool_ratio
+        self.max_iterations = max_iterations
+        self.runs = runs
 
     def forward(self, x: OptTensor, edge_index: Adj,
                 edge_attr: OptTensor = None,
@@ -60,8 +61,13 @@ class MISSampling(MISSPool):
                 batch: OptTensor = None,
                 size: Size = None) -> Tuple[OptTensor, Adj, OptTensor, OptTensor]:
         adj = self._get_adj(x, edge_index, edge_attr, pos, batch, size)
-        perm = None if self.ordering is None else self.ordering(x, adj)
-        mis, self.stride = geodesic_fps(adj, self.max_nodes, perm)
+        
+        mis, self.stride = maximal_independent_sample(adj, self.max_nodes,
+                                                      self.runs, self.max_iterations)
+        
+        if self.stride == 0:
+            return x, adj, pos, batch
+        
         self.pool_size = int(self.stride*self.pool_ratio)
 
         x, pos = self.pool(adj, mis, x, pos)
