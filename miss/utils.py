@@ -58,8 +58,7 @@ def sparse_matrix_power(matrix: SparseTensor, p: int = 2, min_sum: bool = False)
     return _mat_pow(matrix, p)
 
 
-def maximal_k_independent_set(adj: SparseTensor, k: int = 1,
-                              rank: OptTensor = None) -> Tensor:
+def maximal_k_independent_set(adj: SparseTensor, k: int = 1, rank: OptTensor = None) -> Tensor:
     n, device = adj.size(0), adj.device()
     adj = adj.set_value(None, layout=None).set_diag()
 
@@ -92,48 +91,39 @@ def maximal_independent_set(adj: SparseTensor, rank: OptTensor = None) -> Tensor
     return maximal_k_independent_set(adj, 1, rank)
 
 
-def maximal_independent_sample(adj: SparseTensor, max_nodes: int,
-                               runs: int = 16, max_iterations: int = 1) -> Tuple[Tensor, int]:
+def maximal_independent_sample(adj: SparseTensor, max_nodes: int) -> Tuple[Tensor, int]:
     n, device = adj.size(0), adj.device()
     
     if max_nodes >= n:
         return torch.ones(n, dtype=torch.bool, device=device), 0
     
-    adj = adj.set_value(None, layout=None).set_diag()
+    r_bound = 1
+    mis_size = n
+    mis = None
+    rank = torch.randperm(n, device=device)
     
-    for _ in range(max(1, max_iterations)):
-        sample_val = torch.randint(n, size=(n, runs), dtype=torch.long, device=device)
-        _, sample_idx = torch.topk(sample_val, max_nodes, largest=False, dim=0)
+    while mis_size > max_nodes:
+        mis = maximal_k_independent_set(adj, r_bound, rank)
+        mis_size = torch.count_nonzero(mis)
         
-        samples = torch.zeros(n, runs, dtype=torch.bool)
-        samples = torch.scatter(samples, 0, sample_idx, True)
-        covered = samples.long()
-        covered_count = torch.full((runs,), fill_value=max_nodes,
-                                   dtype=torch.long, device=device)
-        is_dominating = torch.zeros(runs, dtype=torch.bool, device=device)
-        stride = 0
+        if mis_size > max_nodes:
+            r_bound *= 2
     
-        while not is_dominating.any():
-            covered = adj.matmul(covered, reduce='max')
-            count = covered.sum(0)
-            
-            if torch.equal(count, covered_count):
-                break
-            
-            covered_count = count
-            is_dominating = torch.eq(covered_count, n)
-            stride += 1
+    l_bound = r_bound // 2
+    
+    while l_bound <= r_bound - 1:
+        k = (r_bound + l_bound)//2
         
-        stride = math.ceil(stride/2)
-        
-        if stride == 0:
-            mis = torch.ones(n, dtype=torch.bool, device=device)
+        if k == l_bound:
             break
         
-        perm = torch.argsort(sample_val[:, is_dominating][:, 0], descending=False)
-        mis = maximal_k_independent_set(adj, stride, perm)
+        new_mis = maximal_k_independent_set(adj, k, rank)
+        mis_size = torch.count_nonzero(new_mis)
         
-        if torch.count_nonzero(mis) <= max_nodes:
-            return mis, stride
-        
-    return mis, stride  # noqa
+        if mis_size > max_nodes:
+            l_bound = k
+        else:
+            mis = new_mis.clone()
+            r_bound = k
+            
+    return mis, r_bound
