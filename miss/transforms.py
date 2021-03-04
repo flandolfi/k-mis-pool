@@ -4,7 +4,7 @@ import torch
 
 from torch_geometric.utils import to_networkx
 from torch_geometric.data import Data
-from torch_geometric.typing import Adj, Tuple, OptTensor, Size
+from torch_geometric.typing import Adj, Tuple, OptTensor, Size, Union, Tensor
 from torch_sparse import SparseTensor
 
 from networkx.algorithms import centrality as nxc
@@ -26,7 +26,7 @@ class Permute(object):
     def __call__(self, data: Data):
         G = to_networkx(data, edge_attrs=None if data.edge_attr is None else ["edge_attr"],
                         to_undirected=True)
-        c_dict = self.centrality(G, *self.args, **self.kwargs)
+        c_dict = self.centrality(G, *self.args, **self.kwargs)  # noqa
         perm = torch.argsort(torch.FloatTensor(list(c_dict.values())),
                              dim=0, descending=self.descending)
         adj = SparseTensor.from_edge_index(data.edge_index, data.edge_attr,
@@ -54,27 +54,12 @@ class MISSampling(MISSPool):
         self.max_nodes = max_nodes
         self.pool_ratio = pool_ratio
 
-    def forward(self, x: OptTensor, edge_index: Adj,
-                edge_attr: OptTensor = None,
-                pos: OptTensor = None,
-                batch: OptTensor = None,
-                size: Size = None) -> Tuple[OptTensor, Adj, OptTensor, OptTensor]:
-        adj = self._get_adj(x, edge_index, edge_attr, pos, batch, size)
+    def _get_mis(self, adj: Adj, *xs: OptTensor) -> Tensor:
         mis, self.stride = maximal_independent_sample(adj, self.max_nodes)
-        
-        if self.stride == 0:
-            return x, adj, pos, batch
-        
         self.pool_size = int(self.stride*self.pool_ratio)
 
-        x, pos = self.pool(adj, mis, x, pos)
-        adj = self.coarsen(adj, mis)
+        return mis
 
-        if batch is not None:
-            batch = batch[mis]
-
-        return x, adj, pos, batch
-
-    def __call__(self, data: Data):
-        data.x, data.edge_index, data.pos, _ = self.forward(data.x, data.edge_index, data.edge_attr, data.pos)
+    def __call__(self, data: Data) -> Data:
+        data.edge_index, data.x, data.pos = self.forward(data.edge_index, data.edge_attr, data.x, data.pos)
         return data
