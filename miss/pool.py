@@ -11,11 +11,11 @@ class MISSPool(MessagePassing):
     propagate_type = {'x': Tensor}
 
     def __init__(self, pool_size=1, stride=None, ordering='random',
-                 add_self_loops=True, normalize=True, weighted=True):
-        super(MISSPool, self).__init__(aggr='add')
+                 add_self_loops=True, normalize=True, aggr='add', weighted=True):
+        super(MISSPool, self).__init__(aggr=aggr)
 
         self.pool_size = pool_size
-        self.stride = stride if stride else pool_size
+        self.stride = pool_size if stride is None else stride
         self.add_self_loops = add_self_loops
         self.ordering: orderings.Ordering = self._get_ordering(ordering)
         self.normalize = normalize
@@ -51,13 +51,8 @@ class MISSPool(MessagePassing):
         return getattr(orderings, cls_name)(**opts)
 
     def pool(self, p_mat: SparseTensor, *xs: OptTensor) -> Tuple[OptTensor, ...]:
-        if self.pool_size <= 0:
-            return xs
-
         if not self.weighted:
             p_mat.set_value_(torch.ones_like(p_mat.storage.value()), layout="coo")
-            count = p_mat.sum(-1).unsqueeze(-1)
-            p_mat *= torch.where(count == 0, torch.zeros_like(count), 1. / count)
 
         out = []
 
@@ -70,9 +65,6 @@ class MISSPool(MessagePassing):
         return tuple(out)
 
     def coarsen(self, s_mat: SparseTensor, adj: SparseTensor) -> SparseTensor:
-        if self.stride <= 0:
-            return adj
-
         if self.normalize:
             norm = s_mat.t().sum(-1).unsqueeze(-1)
             norm = torch.where(norm == 0, torch.ones_like(norm), 1. / norm)
@@ -86,9 +78,9 @@ class MISSPool(MessagePassing):
         if p > s:
             return MISSPool.get_coarsening_matrices(adj, mis, s, p)[::-1]
 
-        p_mat = adj[mis]
+        p_mat = adj.eye(adj.size(0), device=adj.device())[mis]
 
-        for _ in range(1, p):
+        for _ in range(p):
             p_mat @= adj
 
         s_mat = p_mat.clone()
@@ -148,4 +140,4 @@ class MISSPool(MessagePassing):
         return adj, *x, batch
 
     def message_and_aggregate(self, adj_t: SparseTensor, x: Tensor) -> Tensor:  # noqa
-        return adj_t @ x
+        return adj_t.matmul(x, reduce=self.aggr)
