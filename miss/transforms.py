@@ -61,5 +61,5 @@ class MISSampling(MISSPool):
         return mis
 
     def __call__(self, data: Data) -> Data:
-        data.edge_index, data.x, data.pos = self.forward(data.edge_index, data.edge_attr, data.x, data.pos)
+        data.edge_index, data.x, data.pos, _ = self.forward(data.edge_index, data.edge_attr, data.x, data.pos)
         return data
