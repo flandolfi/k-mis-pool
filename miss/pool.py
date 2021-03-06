@@ -55,7 +55,7 @@ class MISSPool(MessagePassing):
             p_mat.set_value_(torch.ones_like(p_mat.storage.value()), layout="coo")
 
         out = []
-        deg = self.propagate(p_mat, x=torch.ones(1, p_mat.size(-1), dtype=torch.float, device=p_mat.device()))
+        deg = self.propagate(p_mat, x=torch.ones(p_mat.size(-1), 1, dtype=torch.float, device=p_mat.device()))
 
         for x in xs:
             if x is None:
