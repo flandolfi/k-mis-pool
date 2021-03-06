@@ -10,8 +10,8 @@ from miss import orderings, utils
 class MISSPool(MessagePassing):
     propagate_type = {'x': Tensor}
 
-    def __init__(self, pool_size=1, stride=None, ordering='random',
-                 add_self_loops=True, normalize=True, aggr='add', weighted=True):
+    def __init__(self, pool_size=1, stride=None, ordering='random', add_self_loops=True,
+                 normalize=True, aggr='add', weighted=True, laplacian_smoothing=True):
         super(MISSPool, self).__init__(aggr=aggr)
 
         self.pool_size = pool_size
@@ -20,6 +20,7 @@ class MISSPool(MessagePassing):
         self.ordering: orderings.Ordering = self._get_ordering(ordering)
         self.normalize = normalize
         self.weighted = weighted
+        self.laplacian_smoothing = laplacian_smoothing
 
     @staticmethod
     def _get_ordering(ordering):
@@ -53,16 +54,21 @@ class MISSPool(MessagePassing):
     def pool(self, p_mat: SparseTensor, mis: Tensor, *xs: OptTensor) -> Tuple[OptTensor, ...]:
         if not self.weighted:
             p_mat.set_value_(torch.ones_like(p_mat.storage.value()), layout="coo")
-
-        out = []
+            
         deg = self.propagate(p_mat, x=torch.ones(p_mat.size(-1), 1, dtype=torch.float, device=p_mat.device()))
+        out = []
 
         for x in xs:
             if x is None:
                 out.append(None)
             else:
-                out.append(x[mis]*(1 + deg) - self.propagate(p_mat, x=x))
-
+                x_prime = self.propagate(p_mat, x=x)
+                
+                if self.laplacian_smoothing:
+                    x_prime = x[mis]*(1 + deg) - x_prime
+                    
+                out.append(x_prime)
+                
         return tuple(out)
 
     def coarsen(self, s_mat: SparseTensor, adj: SparseTensor) -> SparseTensor:
