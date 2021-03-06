@@ -1,16 +1,14 @@
-import math
-
 import torch
 
 from torch_geometric.utils import to_networkx
 from torch_geometric.data import Data
-from torch_geometric.typing import Adj, Tuple, OptTensor, Size, Union, Tensor
+from torch_geometric.typing import Adj, OptTensor, Tensor
 from torch_sparse import SparseTensor
 
 from networkx.algorithms import centrality as nxc
 
 from miss.pool import MISSPool
-from miss.utils import maximal_independent_sample, maximal_k_independent_set
+from miss.utils import maximal_independent_sample
 
 
 class Permute(object):

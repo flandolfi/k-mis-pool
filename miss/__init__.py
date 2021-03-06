@@ -1,9 +1,3 @@
-from miss import kernels, orderings, utils
+from miss import kernels, orderings, utils, pool, transforms
 from miss.pool import MISSPool
-
-__all__ = [
-    'kernels',
-    'orderings',
-    'utils',
-    'MISSPool'
-]
+from miss.transforms import MISSampling

@@ -1,5 +1,3 @@
-import math
-
 import torch
 from torch_geometric.typing import OptTensor, Tensor, Tuple
 from torch_sparse import SparseTensor
