@@ -50,17 +50,18 @@ class MISSPool(MessagePassing):
 
         return getattr(orderings, cls_name)(**opts)
 
-    def pool(self, p_mat: SparseTensor, *xs: OptTensor) -> Tuple[OptTensor, ...]:
+    def pool(self, p_mat: SparseTensor, mis: Tensor, *xs: OptTensor) -> Tuple[OptTensor, ...]:
         if not self.weighted:
             p_mat.set_value_(torch.ones_like(p_mat.storage.value()), layout="coo")
 
         out = []
+        deg = self.propagate(p_mat, x=torch.ones(1, p_mat.size(-1), dtype=torch.float, device=p_mat.device()))
 
         for x in xs:
             if x is None:
                 out.append(None)
             else:
-                out.append(self.propagate(p_mat, x=x))  # noqa
+                out.append(x[mis]*(1 + deg) - self.propagate(p_mat, x=x))
 
         return tuple(out)
 
@@ -131,7 +132,7 @@ class MISSPool(MessagePassing):
         mis = self._get_mis(adj, *xs)
         p_mat, s_mat = self.get_coarsening_matrices(adj, mis, self.pool_size, self.stride)
 
-        x = self.pool(p_mat, *xs)
+        x = self.pool(p_mat, mis, *xs)
         adj = self.coarsen(s_mat, adj)
         
         if batch is not None:
