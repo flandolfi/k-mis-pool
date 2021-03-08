@@ -20,7 +20,6 @@ from benchmark.models import GNN
 class SkorchDataset(Dataset):
     def __init__(self, X, y=None, transform=None):
         super(SkorchDataset, self).__init__(list(X))
-        self.y = y
         self.transform = transform
         
         self._len = len(X)
@@ -29,7 +28,9 @@ class SkorchDataset(Dataset):
         return self._len
 
     def __getitem__(self, i):
-        return self.transform(self.X[i]), self.y[i]
+        xi = self.X[i]
+        yi = xi.y.item()
+        return self.transform(xi), yi
 
 
 def _to_tensor_wrapper(func):
