@@ -60,7 +60,6 @@ def sparse_matrix_power(matrix: SparseTensor, p: int = 2, min_sum: bool = False)
 @torch.jit.script
 def maximal_k_independent_set(adj: SparseTensor, k: int = 1, rank: OptTensor = None) -> Tensor:
     n, device = adj.size(0), adj.device()
-    adj = diag.set_diag(adj.set_value(None, layout=None))
     row, col, val = adj.coo()
 
     if rank is None:
