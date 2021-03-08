@@ -12,14 +12,14 @@ from torch_geometric import transforms as T
 import skorch
 from skorch import NeuralNetClassifier
 from skorch.callbacks import ProgressBar, Checkpoint, EpochScoring
-from skorch.dataset import CVSplit
+from skorch.dataset import CVSplit, Dataset
 
 from benchmark.models import GNN
 
 
-class SkorchDataset(torch.utils.data.Dataset):
+class SkorchDataset(Dataset):
     def __init__(self, X, y=None, transform=None):
-        self.X = list(X)
+        super(SkorchDataset, self).__init__(list(X))
         self.y = y
         self.transform = transform
         
