@@ -24,7 +24,7 @@ class MLP(nn.Sequential):
             
             modules.append(nn.Linear(ch_in, ch_out))
         
-        super(MLP, self).__init__(*modules[:-1])
+        super(MLP, self).__init__(*modules)
 
 
 class MPSeq(nn.Sequential):
@@ -92,9 +92,7 @@ class GNN(nn.Module):
         ])
 
         out_dim = hidden*(2**(len(self.blocks)-1))
-        self.lin_out = nn.Sequential(
-            MLP(out_dim, out_dim//2, out_dim//4, dataset.num_classes, dropout=0.5)
-        )
+        self.lin_out = MLP(out_dim, out_dim//2, out_dim//4, dataset.num_classes, dropout=0.5)
 
     def forward(self, data):
         x, pos, batch, n, b = data.x, data.pos, data.batch, data.num_nodes, data.num_graphs

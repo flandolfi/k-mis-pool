@@ -68,7 +68,6 @@ DEFAULT_NET_PARAMS = {
     'verbose': 1,
     'lr': 0.001,
     'batch_size': -1,
-    # 'dataset': SkorchDataset,
     'iterator_train': DataLoader,
     'iterator_valid': DataLoader,
     'iterator_train__shuffle': True,
