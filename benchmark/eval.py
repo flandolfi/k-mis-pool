@@ -13,16 +13,15 @@ import skorch
 from skorch import NeuralNetClassifier
 from skorch.helper import predefined_split
 from skorch.callbacks import ProgressBar, Checkpoint
-from skorch.dataset import Dataset
+from skorch.dataset import Dataset, CVSplit
 
 from sklearn.model_selection import StratifiedShuffleSplit
 
 from benchmark.models import GNN
 
 
-class SkorchDataset(Dataset):
+class SkorchDataset(torch.utils.data.Dataset):
     def __init__(self, X, y=None, transform=None):
-        super(SkorchDataset, self).__init__(X, y)
         self.X = list(X)
         self.y = y
         self.transform = transform
@@ -69,6 +68,7 @@ DEFAULT_NET_PARAMS = {
     'verbose': 1,
     'lr': 0.001,
     'batch_size': -1,
+    'dataset': SkorchDataset,
     'iterator_train': DataLoader,
     'iterator_valid': DataLoader,
     'iterator_train__shuffle': True,
@@ -86,27 +86,22 @@ def modelnet(root: str = './dataset/ModelNet40/',
     ds = ModelNet(root, '40', train=True)
     ds.data.face = None
     ds.slices.pop('face')
-    transform = T.FixedPoints(num=num_nodes, replace=False, allow_duplicates=False)
     
-    sss = StratifiedShuffleSplit(1, test_size=0.1, random_state=42)
-    y = ds.data.y
-    idx_tr, idx_val = next(sss.split(y, y))
-    X_tr, X_val = ds[list(idx_tr)], ds[list(idx_val)]
-    y_tr, y_val = y[idx_tr], y[idx_val]
-
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update({
-        'train_split': predefined_split(SkorchDataset(X_val, y_val, transform=transform)),
         'callbacks': [
             ('progress_bar', ProgressBar),
             ('checkpoint', Checkpoint),
         ],
+        'dataset__transform': T.FixedPoints(num=num_nodes, replace=False, allow_duplicates=False),
+        'train_split': CVSplit(cv=0.1, stratified=True, random_state=42),
         'callbacks__checkpoint__monitor': 'valid_acc_best',
         'callbacks__checkpoint__f_params': model_path,
         'callbacks__checkpoint__f_optimizer': None,
         'callbacks__checkpoint__f_criterion': None,
         'callbacks__checkpoint__f_history': history_path,
         'callbacks__checkpoint__f_pickle': None,
+        'callbacks__valid_acc__use_caching': False
     })
     opts.update(net_kwargs)
     net = NeuralNetClassifier(
@@ -115,7 +110,7 @@ def modelnet(root: str = './dataset/ModelNet40/',
         **opts
     )
 
-    net.fit(SkorchDataset(X_tr, y_tr, transform=transform), None)
+    net.fit(list(ds), ds.data.y)
 
 
 if __name__ == "__main__":
