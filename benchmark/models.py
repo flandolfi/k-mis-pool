@@ -117,7 +117,7 @@ class GNN(nn.Module):
         out = glob.global_mean_pool(x, batch, b)
         out = self.lin_out(out)
 
-        return out
+        return F.softmax(out)
 
 
 class GCN(GNN):
