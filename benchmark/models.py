@@ -69,26 +69,28 @@ class Block(nn.Module):
 
 
 class GNN(nn.Module):
-    def __init__(self, dataset: Dataset, hidden=32, num_layers=5, **pool_kwargs):
+    def __init__(self, dataset: Dataset, hidden=32, num_blocks=4, num_layers=5, knn=16, **pool_kwargs):
         super(GNN, self).__init__()
 
         pos = dataset[0].pos
         pos_dim = 0 if pos is None else pos.size(1)
         in_dim = dataset.num_node_features + pos_dim
+        
+        self.knn = knn
 
         self.lin_in = nn.Linear(in_dim, hidden)
         self.pool = MISSPool(**pool_kwargs)
         
         self.blocks = nn.ModuleList([
-            Block(hidden, num_layers=num_layers, dropout=0, gnn=conv.ChebConv, K=2, normalization=None),
-            Block(hidden*2, num_layers=num_layers, dropout=0, gnn=conv.ChebConv, K=2, normalization=None),
-            Block(hidden*4, num_layers=num_layers, dropout=0, gnn=conv.ChebConv, K=2, normalization=None),
+            Block(hidden*(2**i), num_layers=num_layers,
+                  gnn=conv.ChebConv, K=2, normalization=None)
+            for i in range(num_blocks)
         ])
         
         self.expanders = nn.ModuleList([
             nn.Linear(in_dim, hidden)
         ] + [
-            nn.Linear(hidden*(2**i), hidden*(2**(i+1))) for i in range(len(self.blocks) - 1)
+            nn.Linear(hidden*(2**i), hidden*(2**(i+1))) for i in range(num_blocks - 1)
         ])
 
         out_dim = hidden*(2**(len(self.blocks)-1))
@@ -96,7 +98,7 @@ class GNN(nn.Module):
 
     def forward(self, data):
         x, pos, batch, n, b = data.x, data.pos, data.batch, data.num_nodes, data.num_graphs
-        edge_index, edge_attr = knn_graph(pos, 5, batch, True), None
+        edge_index, edge_attr = knn_graph(pos, self.knn, batch, True), None
         
         if x is None:
             x = pos
@@ -110,6 +112,7 @@ class GNN(nn.Module):
             row, col, edge_attr = adj.coo()
             edge_index = torch.stack([row, col])
             
+        print(x.size(0)/b)
         out = glob.global_mean_pool(x, batch, b)
         out = self.lin_out(out)
 
