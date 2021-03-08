@@ -3,7 +3,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from torch_geometric.data import Dataset
-from torch_geometric.nn import conv, glob
+from torch_geometric.nn import conv, glob, knn_graph
 from torch_geometric.typing import SparseTensor, Tensor, OptPairTensor
 
 from miss import MISSPool
@@ -100,7 +100,7 @@ class GNN(nn.Module):
 
     def forward(self, data):
         x, pos, batch, n, b = data.x, data.pos, data.batch, data.num_nodes, data.num_graphs
-        edge_index, edge_attr = data.edge_index, data.edge_attr
+        edge_index, edge_attr = knn_graph(pos, 5, batch, True), None
         
         if x is None:
             x = pos

@@ -96,14 +96,7 @@ def modelnet(root: str = './dataset/ModelNet40/',
         data.face = torch.cat([f[[0, 1, 2]], f[[0, 1, 3]], f[[0, 2, 3]], f[[1, 2, 3]]], dim=-1)
         return data
     
-    ds = ModelNet(root, '40', train=True,
-                  transform=T.Compose([
-                      T.SamplePoints(num=num_nodes),
-                      T.NormalizeRotation(),
-                      T.Delaunay(),
-                      get_triangles,
-                      T.FaceToEdge()
-                  ]))
+    ds = ModelNet(root, '40', train=True, transform=T.SamplePoints(num=num_nodes))
     
     sss = StratifiedShuffleSplit(1, test_size=0.1, random_state=42)
     y = ds.data.y.numpy()
