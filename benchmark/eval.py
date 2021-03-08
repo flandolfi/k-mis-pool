@@ -90,7 +90,7 @@ def modelnet(root: str = './dataset/ModelNet40/',
             ('progress_bar', ProgressBar),
             ('train_acc', EpochScoring(
                 'accuracy',
-                name='valid_acc',
+                name='train_acc',
                 on_train=True,
                 lower_is_better=False)),
             ('checkpoint', Checkpoint),
