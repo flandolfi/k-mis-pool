@@ -91,12 +91,7 @@ def modelnet(root: str = './dataset/ModelNet40/',
              model_path: str = None,
              history_path: str = None,
              **net_kwargs):
-    def get_triangles(data):
-        f = data.face.long()
-        data.face = torch.cat([f[[0, 1, 2]], f[[0, 1, 3]], f[[0, 2, 3]], f[[1, 2, 3]]], dim=-1)
-        return data
-    
-    ds = ModelNet(root, '40', train=True, transform=T.SamplePoints(num=num_nodes))
+    ds = ModelNet(root, '40', train=True, transform=T.FixedPoints(num=num_nodes, replace=False, allow_duplicates=False))
     
     sss = StratifiedShuffleSplit(1, test_size=0.1, random_state=42)
     y = ds.data.y.numpy()
@@ -124,7 +119,7 @@ def modelnet(root: str = './dataset/ModelNet40/',
         **opts
     )
 
-    return net.fit(SkorchDataset(ds_train), None)
+    net.fit(SkorchDataset(ds_train), None)
 
 
 if __name__ == "__main__":
