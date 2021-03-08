@@ -54,7 +54,7 @@ class Block(nn.Module):
         ])
         
         self.mlps = nn.ModuleList([
-            MLP(hidden, hidden, hidden, dropout=dropout) for _ in range(num_layers)
+            MLP(hidden, hidden, dropout=dropout) for _ in range(num_layers)
         ])
         
     def forward(self, x, *args, **kwargs):
@@ -105,7 +105,7 @@ class GNN(nn.Module):
 
         for lin, block in zip(self.expanders, self.blocks):
             x = lin(x)
-            x = block(x, edge_index, edge_attr, batch)
+            x = block(x, edge_index, edge_attr, batch, x.new_ones(1))
             adj, x, batch = self.pool(edge_index, edge_attr, x, batch=batch)
             row, col, edge_attr = adj.coo()
             edge_index = torch.stack([row, col])
