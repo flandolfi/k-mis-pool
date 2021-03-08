@@ -24,7 +24,7 @@ class SkorchDataset(Dataset):
     def __init__(self, X, y=None, transform=None):
         super(SkorchDataset, self).__init__(X, y)
         self.X = list(X)
-        self.y = y or X.data.y
+        self.y = y
         self.transform = transform
         
         self._len = len(X)
@@ -89,13 +89,14 @@ def modelnet(root: str = './dataset/ModelNet40/',
     transform = T.FixedPoints(num=num_nodes, replace=False, allow_duplicates=False)
     
     sss = StratifiedShuffleSplit(1, test_size=0.1, random_state=42)
-    y = ds.data.y.numpy()
+    y = ds.data.y
     idx_tr, idx_val = next(sss.split(y, y))
-    ds_train, ds_val = ds[list(idx_tr)], ds[list(idx_val)]
+    X_tr, X_val = ds[list(idx_tr)], ds[list(idx_val)]
+    y_tr, y_val = y[idx_tr], y[idx_val]
 
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update({
-        'train_split': predefined_split(SkorchDataset(ds_val, transform=transform)),
+        'train_split': predefined_split(SkorchDataset(X_val, y_val, transform=transform)),
         'callbacks': [
             ('progress_bar', ProgressBar),
             ('checkpoint', Checkpoint),
@@ -114,7 +115,7 @@ def modelnet(root: str = './dataset/ModelNet40/',
         **opts
     )
 
-    net.fit(SkorchDataset(ds_train, transform=transform), None)
+    net.fit(SkorchDataset(X_tr, y_tr, transform=transform), None)
 
 
 if __name__ == "__main__":
