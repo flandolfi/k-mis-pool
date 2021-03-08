@@ -88,12 +88,12 @@ class MISSPool(MessagePassing):
         p_mat = adj.eye(adj.size(0), device=adj.device())[mis]
 
         for _ in range(p):
-            p_mat @= adj
+            p_mat = p_mat @ adj
 
         s_mat = p_mat.clone()
 
         for _ in range(p, s):
-            s_mat @= adj
+            s_mat = s_mat @ adj
 
         return p_mat, s_mat
 
@@ -117,7 +117,7 @@ class MISSPool(MessagePassing):
 
         if self.normalize:
             deg = adj.sum(-1).unsqueeze(-1)
-            adj *= torch.where(deg == 0, torch.zeros_like(deg), 1. / deg)
+            adj = adj * torch.where(deg == 0, torch.zeros_like(deg), 1. / deg)
 
         return adj
 
