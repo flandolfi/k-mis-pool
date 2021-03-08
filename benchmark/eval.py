@@ -83,10 +83,9 @@ def modelnet(root: str = './dataset/ModelNet40/',
              model_path: str = None,
              history_path: str = None,
              **net_kwargs):
-    def pre_transform(data):
-        return Data(x=data.x, pos=data.pos)
-    
-    ds = ModelNet(root, '40', train=True, pre_transform=pre_transform)
+    ds = ModelNet(root, '40', train=True)
+    ds.data.face = None
+    ds.slices.pop('face')
     transform = T.FixedPoints(num=num_nodes, replace=False, allow_duplicates=False)
     
     sss = StratifiedShuffleSplit(1, test_size=0.1, random_state=42)
