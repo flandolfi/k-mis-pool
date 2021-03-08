@@ -4,26 +4,25 @@ from torch.nn import functional as F
 
 from torch_geometric.data import Dataset
 from torch_geometric.nn import conv, glob
-from torch_geometric.utils import add_self_loops
 from torch_geometric.typing import SparseTensor, Tensor, OptPairTensor
 
 from miss import MISSPool
 
 
 class MLP(nn.Sequential):
-    def __init__(self, *hidden, dropout=0., batch_norm=False):
+    def __init__(self, *hidden, dropout=0., batch_norm=True):
         modules = []
         
         for ch_in, ch_out in zip(hidden[:-1], hidden[1:]):
+            if batch_norm:
+                modules.append(nn.BatchNorm1d(ch_in))
+                
+            modules.append(nn.ReLU())
+            
             if not dropout:
                 modules.append(nn.Dropout(dropout))
             
             modules.append(nn.Linear(ch_in, ch_out))
-            
-            if batch_norm:
-                modules.append(nn.BatchNorm1d(ch_out))
-                
-            modules.append(nn.ReLU())
         
         super(MLP, self).__init__(*modules[:-1])
 
@@ -37,148 +36,85 @@ class MPSeq(nn.Sequential):
                 input = module(input)
         
         return input
+    
 
-
-class PointNet(nn.Module):
-    def __init__(self, dataset: Dataset, hidden=64, dropout=0.5, **pool_kwargs):
-        super(PointNet, self).__init__()
-
-        self.dataset = dataset
-
-        pos = dataset[0].pos
-        pos_dim = 0 if pos is None else pos.size(1)
-        x_dim = dataset.num_node_features
-
-        self.conv = nn.ModuleList([
-            conv.PointConv(local_nn=MLP(x_dim + pos_dim, hidden, hidden, hidden*2, batch_norm=True),
-                           add_self_loops=True),
-            conv.PointConv(local_nn=MLP(hidden*2 + pos_dim, hidden*2, hidden*2, hidden*4, batch_norm=True),
-                           add_self_loops=False),
-            conv.PointConv(local_nn=MLP(hidden*4 + pos_dim, hidden*4, hidden*8, hidden*16, batch_norm=True),
-                           add_self_loops=False)
-        ])
-
-        self.pool = MISSPool(add_self_loops=False, **pool_kwargs)
-
-        self.mlp = nn.Sequential(
-            nn.BatchNorm1d(hidden*16),
-            nn.ReLU(),
+class Block(nn.Module):
+    def __init__(self, hidden=128, num_layers=3, dropout=0., gnn='ChebConv', **kwargs):
+        super(Block, self).__init__()
+        
+        if isinstance(gnn, str):
+            gnn = getattr(conv, gnn)
             
-            MLP(hidden*16, hidden*8, hidden*4, dataset.num_classes, dropout=dropout, batch_norm=True)
-        )
-
-    def forward(self, data):
-        x, pos, adj = data.x, data.pos, data.edge_index
-        batch, b, n = data.batch, data.num_graphs, data.num_nodes
-
-        for gcn in self.conv:
-            x = gcn(x, pos, adj)
-            x, adj, pos, batch = self.pool(x, adj, pos=pos, batch=batch)
-
-        out = self.conv[-1](x, pos, adj)
-        out = glob.global_max_pool(out, batch, b)
-        out = self.mlp(out)
-
-        return out
+        self.batch_norms = nn.ModuleList([
+            nn.Sequential(nn.BatchNorm1d(hidden), nn.ReLU()) for _ in range(num_layers)
+        ])
+            
+        self.gnn_convs = nn.ModuleList([
+            gnn(hidden, hidden, **kwargs) for _ in range(num_layers)
+        ])
+        
+        self.mlps = nn.ModuleList([
+            MLP(hidden, hidden, hidden, dropout=dropout) for _ in range(num_layers)
+        ])
+        
+    def forward(self, x, *args, **kwargs):
+        for bn, gnn, mlp in zip(self.batch_norms, self.gnn_convs, self.mlps):
+            res = x
+            x = bn(x)
+            x = gnn(x, *args, **kwargs)
+            x = mlp(x)
+            x = x + res
+        
+        return x
 
 
 class GNN(nn.Module):
-    def __init__(self, dataset: Dataset, gnn="GCNConv",
-                 hidden=146, num_layers=4, blocks=1,
-                 hidden_factor=1, readout=False,
-                 **pool_kwargs):
+    def __init__(self, dataset: Dataset, hidden=32, **pool_kwargs):
         super(GNN, self).__init__()
 
         pos = dataset[0].pos
         pos_dim = 0 if pos is None else pos.size(1)
         in_dim = dataset.num_node_features + pos_dim
-        out_dim = 0
 
-        self.num_blocks = blocks
         self.lin_in = nn.Linear(in_dim, hidden)
-        self.has_weights = False
-        self.pool = MISSPool(add_self_loops=False, **pool_kwargs)
-        self.hidden_factor = hidden_factor
-        self.readout = readout
+        self.pool = MISSPool(**pool_kwargs)
+        
+        self.blocks = nn.ModuleList([
+            Block(hidden, num_layers=3, dropout=0, gnn=conv.ChebConv, K=2),
+            Block(hidden*2, num_layers=3, dropout=0, gnn=conv.ChebConv, K=2),
+            Block(hidden*4, num_layers=3, dropout=0, gnn=conv.ChebConv, K=2),
+            Block(hidden*8, num_layers=3, dropout=0, gnn=conv.ChebConv, K=2),
+            Block(hidden*16, num_layers=3, dropout=0, gnn=conv.ChebConv, K=2),
+        ])
+        
+        self.expanders = nn.ModuleList([
+            nn.Linear(in_dim, hidden)
+        ] + [
+            nn.Linear(hidden*(2**i), hidden*(2**(i+1))) for i in range(len(self.blocks) - 1)
+        ])
 
-        if isinstance(gnn, str):
-            gnn = getattr(conv, gnn)
-
-        gnn_kwargs = {}
-
-        if gnn is conv.GCNConv:
-            self.has_weights = True
-            gnn_kwargs['add_self_loops'] = False
-        elif gnn is conv.SAGEConv:
-            gnn_kwargs['aggr'] = 'max'
-        elif gnn in {conv.GINConv, conv.GINEConv, conv.EdgeConv}:
-            gnn_cls = gnn
-            
-            if gnn is conv.EdgeConv:
-                gnn_kwargs['aggr'] = 'max'
-            else:
-                gnn_kwargs['train_eps'] = True
-
-                if gnn is conv.GINEConv:
-                    self.has_weights = True
-            
-            def gnn(channels_in, channels_out, **kwargs):
-                return gnn_cls(MLP(channels_in, 2*channels_in, channels_out, batch_norm=True), **kwargs)
-
-        self.blocks = nn.ModuleList()
-
-        for b in range(blocks):
-            gnn_layers = []
-            
-            for _ in range(num_layers):
-                gnn_layers.extend([
-                    gnn(hidden, hidden, **gnn_kwargs),
-                    nn.BatchNorm1d(hidden),
-                    nn.ReLU()
-                ])
-                
-            block = MPSeq(*gnn_layers)
-            
-            if b == 0:
-                self.in_block = block
-            else:
-                self.blocks.append(block)
-
-            if readout or b == blocks - 1:
-                out_dim += hidden
-
-            if b < blocks - 1:
-                hidden *= hidden_factor
-
+        out_dim = hidden*(2**(len(self.blocks)-1))
         self.lin_out = nn.Sequential(
-            nn.ReLU(),
-            MLP(out_dim, hidden//2, hidden//4, dataset.num_classes)
+            MLP(out_dim, out_dim//2, out_dim//4, dataset.num_classes, dropout=0.5)
         )
 
     def forward(self, data):
         x, pos, batch, n, b = data.x, data.pos, data.batch, data.num_nodes, data.num_graphs
-        edge_index, edge_attr = add_self_loops(data.edge_index, data.edge_attr, num_nodes=n)
+        edge_index, edge_attr = data.edge_index, data.edge_attr
         
         if x is None:
             x = pos
         elif pos is not None:
             x = torch.cat([x, pos], dim=-1)
 
-        x = self.lin_in(x)
-        xs = []
-        
-        x = self.in_block(x, edge_index, edge_attr if self.has_weights else None)
-
-        for i, block in enumerate(self.blocks):
-            if self.readout:
-                xs.append(glob.global_mean_pool(x, batch, b))
+        for lin, block in zip(self.expanders, self.blocks):
+            x = lin(x)
+            x = block(x, edge_index, edge_attr, batch)
+            adj, x, batch = self.pool(edge_index, edge_attr, x, batch=batch)
+            row, col, edge_attr = adj.coo()
+            edge_index = torch.stack([row, col])
             
-            x, edge_index, pos, batch = self.pool(x, edge_index, edge_attr, pos, batch)
-            x = x.repeat(1, self.hidden_factor)
-            x = block(x, edge_index, edge_attr if self.has_weights else None)
-            
-        xs.append(glob.global_mean_pool(x, batch, b))
-        out = torch.cat(xs, dim=-1)
+        out = glob.global_mean_pool(x, batch, b)
         out = self.lin_out(out)
 
         return out
