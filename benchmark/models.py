@@ -74,7 +74,7 @@ class GNN(nn.Module):
     def forward(self, data):
         x, pos, batch, n, b = data.x, data.pos, data.batch, data.num_nodes, data.num_graphs
         edge_index = knn_graph(pos, self.knn, batch, True)
-        adj = SparseTensor.from_edge_index(edge_index).fill_value(1.)
+        edge_weight = torch.ones_like(edge_index[0], dtype=torch.float)
         
         if x is None:
             x = pos
@@ -84,12 +84,14 @@ class GNN(nn.Module):
         xs = []
             
         for i, gnn in enumerate(self.conv):
-            x = gnn(x, adj)
+            x = gnn(x, edge_index, edge_weight)
             xs.append(glob.global_add_pool(x, batch, b))
             xs.append(glob.global_max_pool(x, batch, b))
             
             if i < len(self.conv) - 1:
-                adj, x, batch = self.pool(adj, None, x, batch=batch)
+                adj, x, batch = self.pool(edge_index, edge_weight, x, batch=batch)
+                row, col, edge_weight = adj.coo()
+                edge_index = torch.stack([row, col])
         
         out = torch.cat(xs, dim=-1)
         out = self.lin_out(out)
