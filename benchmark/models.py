@@ -52,7 +52,7 @@ class WeightedEdgeConv(conv.EdgeConv):
 
 
 class GNN(nn.Module):
-    def __init__(self, dataset: Dataset, hidden=64, knn=16, **pool_kwargs):
+    def __init__(self, dataset: Dataset, hidden=64, knn=16, aggr='add', **pool_kwargs):
         super(GNN, self).__init__()
 
         pos = dataset[0].pos
@@ -63,10 +63,10 @@ class GNN(nn.Module):
         self.pool = MISSPool(**pool_kwargs)
         
         self.conv = nn.ModuleList([
-            WeightedEdgeConv(MLP(2*in_dim, hidden, hidden, dropout=0)),
-            WeightedEdgeConv(MLP(2*hidden, hidden, hidden, dropout=0)),
-            WeightedEdgeConv(MLP(2*hidden, 2*hidden, 2*hidden, dropout=0)),
-            WeightedEdgeConv(MLP(4*hidden, 4*hidden, 4*hidden, dropout=0)),
+            WeightedEdgeConv(MLP(2*in_dim, hidden, hidden, dropout=0), aggr=aggr),
+            WeightedEdgeConv(MLP(2*hidden, hidden, hidden, dropout=0), aggr=aggr),
+            WeightedEdgeConv(MLP(2*hidden, 2*hidden, 2*hidden, dropout=0), aggr=aggr),
+            WeightedEdgeConv(MLP(4*hidden, 4*hidden, 4*hidden, dropout=0), aggr=aggr),
         ])
         
         self.lin_out = MLP(16*hidden, 8*hidden, 4*hidden, dataset.num_classes, dropout=0.5)
