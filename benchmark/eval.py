@@ -21,10 +21,11 @@ from benchmark.models import GNN
 
 
 class SkorchDataset(Dataset):
-    def __init__(self, X, y=None):
+    def __init__(self, X, y=None, transform=None):
         super(SkorchDataset, self).__init__(X, y)
-        self.X = X
+        self.X = list(X)
         self.y = y or X.data.y
+        self.transform = transform
         
         self._len = len(X)
 
@@ -32,7 +33,7 @@ class SkorchDataset(Dataset):
         return self._len
 
     def __getitem__(self, i):
-        return self.X[i], self.y[i]
+        return self.transform(self.X[i]), self.y[i]
 
 
 def _to_tensor_wrapper(func):
@@ -76,14 +77,6 @@ DEFAULT_NET_PARAMS = {
     'iterator_valid__drop_last': False
 }
 
-DEFAULT_MISS_PARAMS = {
-    'max_nodes': 4096,
-    'add_self_loops': True,
-    'normalize': True,
-    'weighted': True,
-    'laplacian_smoothing': True
-}
-
 
 def modelnet(root: str = './dataset/ModelNet40/',
              num_nodes: int = 4096,
@@ -93,9 +86,8 @@ def modelnet(root: str = './dataset/ModelNet40/',
     def pre_transform(data):
         return Data(x=data.x, pos=data.pos)
     
-    ds = ModelNet(root, '40', train=True,
-                  pre_transform=pre_transform,
-                  transform=T.FixedPoints(num=num_nodes, replace=False, allow_duplicates=False))
+    ds = ModelNet(root, '40', train=True, pre_transform=pre_transform)
+    transform = T.FixedPoints(num=num_nodes, replace=False, allow_duplicates=False)
     
     sss = StratifiedShuffleSplit(1, test_size=0.1, random_state=42)
     y = ds.data.y.numpy()
@@ -104,7 +96,7 @@ def modelnet(root: str = './dataset/ModelNet40/',
 
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update({
-        'train_split': predefined_split(SkorchDataset(ds_val)),
+        'train_split': predefined_split(SkorchDataset(ds_val, transform=transform)),
         'callbacks': [
             ('progress_bar', ProgressBar),
             ('checkpoint', Checkpoint),
@@ -123,7 +115,7 @@ def modelnet(root: str = './dataset/ModelNet40/',
         **opts
     )
 
-    net.fit(SkorchDataset(ds_train), None)
+    net.fit(SkorchDataset(ds_train, transform=transform), None)
 
 
 if __name__ == "__main__":
