@@ -10,7 +10,7 @@ from miss import orderings, utils
 class MISSPool(MessagePassing):
     propagate_type = {'x': Tensor}
 
-    def __init__(self, pool_size=1, stride=None, ordering='random', add_self_loops=True,
+    def __init__(self, pool_size=1, stride=None, ordering='random', add_self_loops=False,
                  normalize=True, aggr='add', weighted=True, laplacian_smoothing=True):
         super(MISSPool, self).__init__(aggr=aggr)
 
