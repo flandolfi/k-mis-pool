@@ -11,11 +11,8 @@ from torch_geometric import transforms as T
 
 import skorch
 from skorch import NeuralNetClassifier
-from skorch.helper import predefined_split
 from skorch.callbacks import ProgressBar, Checkpoint
-from skorch.dataset import Dataset, CVSplit
-
-from sklearn.model_selection import StratifiedShuffleSplit
+from skorch.dataset import CVSplit
 
 from benchmark.models import GNN
 
@@ -101,7 +98,6 @@ def modelnet(root: str = './dataset/ModelNet40/',
         'callbacks__checkpoint__f_criterion': None,
         'callbacks__checkpoint__f_history': history_path,
         'callbacks__checkpoint__f_pickle': None,
-        'callbacks__valid_acc__use_caching': False
     })
     opts.update(net_kwargs)
     net = NeuralNetClassifier(
