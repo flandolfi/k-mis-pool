@@ -1,6 +1,6 @@
 import torch
 from torch_geometric.typing import OptTensor, Tensor, Tuple
-from torch_sparse import SparseTensor
+from torch_sparse import SparseTensor, diag
 from torch_scatter import scatter_min, scatter_max
 
 
@@ -57,10 +57,11 @@ def sparse_matrix_power(matrix: SparseTensor, p: int = 2, min_sum: bool = False)
     return _mat_pow(matrix, p)
 
 
+@torch.jit.script
 def maximal_k_independent_set(adj: SparseTensor, k: int = 1, rank: OptTensor = None) -> Tensor:
     n, device = adj.size(0), adj.device()
-    adj = adj.set_value(None, layout=None).set_diag()
-    row, col, _ = adj.coo()
+    adj = diag.set_diag(adj.set_value(None, layout=None))
+    row, col, val = adj.coo()
 
     if rank is None:
         rank = torch.arange(n, dtype=torch.long, device=device)
@@ -74,22 +75,24 @@ def maximal_k_independent_set(adj: SparseTensor, k: int = 1, rank: OptTensor = N
             scatter_min(min_rank[row], col, out=min_rank)
 
         mis = mis | torch.eq(rank, min_rank)
-        mask = mis.long()
+        mask = mis.byte()
 
         for _ in range(k):
             scatter_max(mask[row], col, out=mask)
 
-        mask = mask.bool()
+        mask = mask.to(dtype=torch.bool)
         min_rank = rank.clone()
         min_rank[mask] = n
 
     return mis
 
 
+@torch.jit.script
 def maximal_independent_set(adj: SparseTensor, rank: OptTensor = None) -> Tensor:
     return maximal_k_independent_set(adj, 1, rank)
 
 
+@torch.jit.script
 def maximal_independent_sample(adj: SparseTensor, max_nodes: int) -> Tuple[Tensor, int]:
     n, device = adj.size(0), adj.device()
     
@@ -98,7 +101,7 @@ def maximal_independent_sample(adj: SparseTensor, max_nodes: int) -> Tuple[Tenso
     
     r_bound = 1
     mis_size = n
-    mis = None
+    mis = torch.empty(n, dtype=torch.bool, device=device)
     rank = torch.randperm(n, device=device)
     
     while mis_size > max_nodes:
