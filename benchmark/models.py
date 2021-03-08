@@ -69,7 +69,7 @@ class Block(nn.Module):
 
 
 class GNN(nn.Module):
-    def __init__(self, dataset: Dataset, hidden=32, **pool_kwargs):
+    def __init__(self, dataset: Dataset, hidden=32, num_layers=5, **pool_kwargs):
         super(GNN, self).__init__()
 
         pos = dataset[0].pos
@@ -80,11 +80,9 @@ class GNN(nn.Module):
         self.pool = MISSPool(**pool_kwargs)
         
         self.blocks = nn.ModuleList([
-            Block(hidden, num_layers=3, dropout=0, gnn=conv.ChebConv, K=2),
-            Block(hidden*2, num_layers=3, dropout=0, gnn=conv.ChebConv, K=2),
-            Block(hidden*4, num_layers=3, dropout=0, gnn=conv.ChebConv, K=2),
-            Block(hidden*8, num_layers=3, dropout=0, gnn=conv.ChebConv, K=2),
-            Block(hidden*16, num_layers=3, dropout=0, gnn=conv.ChebConv, K=2),
+            Block(hidden, num_layers=num_layers, dropout=0, gnn=conv.ChebConv, K=2),
+            Block(hidden*2, num_layers=num_layers, dropout=0, gnn=conv.ChebConv, K=2),
+            Block(hidden*4, num_layers=num_layers, dropout=0, gnn=conv.ChebConv, K=2),
         ])
         
         self.expanders = nn.ModuleList([
