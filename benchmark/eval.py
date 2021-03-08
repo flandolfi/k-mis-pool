@@ -11,7 +11,7 @@ from torch_geometric import transforms as T
 
 import skorch
 from skorch import NeuralNetClassifier
-from skorch.callbacks import ProgressBar, Checkpoint
+from skorch.callbacks import ProgressBar, Checkpoint, EpochScoring
 from skorch.dataset import CVSplit
 
 from benchmark.models import GNN
@@ -88,6 +88,11 @@ def modelnet(root: str = './dataset/ModelNet40/',
     opts.update({
         'callbacks': [
             ('progress_bar', ProgressBar),
+            ('train_acc', EpochScoring(
+                'accuracy',
+                name='valid_acc',
+                on_train=True,
+                lower_is_better=False)),
             ('checkpoint', Checkpoint),
         ],
         'dataset__transform': T.FixedPoints(num=num_nodes, replace=False, allow_duplicates=False),
