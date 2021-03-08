@@ -80,9 +80,9 @@ class GNN(nn.Module):
         self.pool = MISSPool(**pool_kwargs)
         
         self.blocks = nn.ModuleList([
-            Block(hidden, num_layers=num_layers, dropout=0, gnn=conv.ChebConv, K=2),
-            Block(hidden*2, num_layers=num_layers, dropout=0, gnn=conv.ChebConv, K=2),
-            Block(hidden*4, num_layers=num_layers, dropout=0, gnn=conv.ChebConv, K=2),
+            Block(hidden, num_layers=num_layers, dropout=0, gnn=conv.ChebConv, K=2, normalization=None),
+            Block(hidden*2, num_layers=num_layers, dropout=0, gnn=conv.ChebConv, K=2, normalization=None),
+            Block(hidden*4, num_layers=num_layers, dropout=0, gnn=conv.ChebConv, K=2, normalization=None),
         ])
         
         self.expanders = nn.ModuleList([
