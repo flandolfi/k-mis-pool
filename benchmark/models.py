@@ -1,10 +1,12 @@
+from typing import Callable
+
 import torch
 from torch import nn
 from torch.nn import functional as F
 
 from torch_geometric.data import Dataset
 from torch_geometric.nn import conv, glob, knn_graph
-from torch_geometric.typing import SparseTensor, Tensor, OptPairTensor
+from torch_geometric.typing import SparseTensor, Tensor, PairTensor, Adj, OptPairTensor, Union, OptTensor
 
 from miss import MISSPool
 
@@ -17,7 +19,7 @@ class MLP(nn.Sequential):
             if batch_norm:
                 modules.append(nn.BatchNorm1d(ch_in))
                 
-            modules.append(nn.ReLU())
+            modules.append(nn.LeakyReLU())
             
             if not dropout:
                 modules.append(nn.Dropout(dropout))
@@ -36,40 +38,21 @@ class MPSeq(nn.Sequential):
                 input = module(input)
         
         return input
-    
 
-class Block(nn.Module):
-    def __init__(self, hidden=128, num_layers=3, dropout=0., gnn='ChebConv', **kwargs):
-        super(Block, self).__init__()
-        
-        if isinstance(gnn, str):
-            gnn = getattr(conv, gnn)
-            
-        self.batch_norms = nn.ModuleList([
-            nn.Sequential(nn.BatchNorm1d(hidden), nn.ReLU()) for _ in range(num_layers)
-        ])
-            
-        self.gnn_convs = nn.ModuleList([
-            gnn(hidden, hidden, **kwargs) for _ in range(num_layers)
-        ])
-        
-        self.mlps = nn.ModuleList([
-            MLP(hidden, hidden, dropout=dropout) for _ in range(num_layers)
-        ])
-        
-    def forward(self, x, *args, **kwargs):
-        for bn, gnn, mlp in zip(self.batch_norms, self.gnn_convs, self.mlps):
-            res = x
-            x = bn(x)
-            x = gnn(x, *args, **kwargs)
-            x = mlp(x)
-            x = x + res
-        
-        return x
+
+class WeightedEdgeConv(conv.EdgeConv):
+    def forward(self, x: Union[Tensor, PairTensor], edge_index: Adj, edge_weight: OptTensor = None) -> Tensor:
+        if isinstance(x, Tensor):
+            x: PairTensor = (x, x)
+        # propagate_type: (x: PairTensor, edge_weight: OptTensor)
+        return self.propagate(edge_index, x=x, edge_weight=edge_weight, size=None)
+    
+    def message(self, x_i: Tensor, x_j: Tensor, edge_weight: Tensor) -> Tensor:
+        return edge_weight.view(-1, 1) * self.nn(torch.cat([x_i, x_j - x_i], dim=-1))
 
 
 class GNN(nn.Module):
-    def __init__(self, dataset: Dataset, hidden=32, num_blocks=4, num_layers=5, knn=16, **pool_kwargs):
+    def __init__(self, dataset: Dataset, hidden=64, knn=16, **pool_kwargs):
         super(GNN, self).__init__()
 
         pos = dataset[0].pos
@@ -77,42 +60,38 @@ class GNN(nn.Module):
         in_dim = dataset.num_node_features + pos_dim
         
         self.knn = knn
-
-        self.lin_in = nn.Linear(in_dim, hidden)
         self.pool = MISSPool(**pool_kwargs)
         
-        self.blocks = nn.ModuleList([
-            Block(hidden*(2**i), num_layers=num_layers,
-                  gnn=conv.ChebConv, K=2, normalization=None)
-            for i in range(num_blocks)
+        self.conv = nn.ModuleList([
+            WeightedEdgeConv(MLP(2*in_dim, hidden, hidden, dropout=0)),
+            WeightedEdgeConv(MLP(2*hidden, hidden, hidden, dropout=0)),
+            WeightedEdgeConv(MLP(2*hidden, 2*hidden, 2*hidden, dropout=0)),
+            WeightedEdgeConv(MLP(4*hidden, 4*hidden, 4*hidden, dropout=0)),
         ])
         
-        self.expanders = nn.ModuleList([
-            nn.Linear(in_dim, hidden)
-        ] + [
-            nn.Linear(hidden*(2**i), hidden*(2**(i+1))) for i in range(num_blocks - 1)
-        ])
-
-        out_dim = hidden*(2**(len(self.blocks)-1))
-        self.lin_out = MLP(out_dim, out_dim//2, out_dim//4, dataset.num_classes, dropout=0.5)
+        self.lin_out = MLP(16*hidden, 8*hidden, 4*hidden, dataset.num_classes, dropout=0.5)
 
     def forward(self, data):
         x, pos, batch, n, b = data.x, data.pos, data.batch, data.num_nodes, data.num_graphs
-        edge_index, edge_attr = knn_graph(pos, self.knn, batch, True), None
+        edge_index = knn_graph(pos, self.knn, batch, True)
+        adj = SparseTensor.from_edge_index(edge_index).fill_value(1.)
         
         if x is None:
             x = pos
         elif pos is not None:
             x = torch.cat([x, pos], dim=-1)
-
-        for lin, block in zip(self.expanders, self.blocks):
-            x = lin(x)
-            x = block(x, edge_index, edge_attr, batch, x.new_ones(1))
-            adj, x, batch = self.pool(edge_index, edge_attr, x, batch=batch)
-            row, col, edge_attr = adj.coo()
-            edge_index = torch.stack([row, col])
+        
+        xs = []
             
-        out = glob.global_mean_pool(x, batch, b)
+        for i, gnn in enumerate(self.conv):
+            x = gnn(x, adj)
+            xs.append(glob.global_add_pool(x, batch, b))
+            xs.append(glob.global_max_pool(x, batch, b))
+            
+            if i < len(self.conv) - 1:
+                adj, x, batch = self.pool(adj, None, x, batch=batch)
+        
+        out = torch.cat(xs, dim=-1)
         out = self.lin_out(out)
 
         return F.softmax(out, dim=-1)
