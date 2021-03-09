@@ -1,10 +1,12 @@
 import torch
 from torch import nn
-from torch.nn import functional as F
 
 from torch_geometric.data import Dataset
-from torch_geometric.nn import conv, glob, knn_graph
-from torch_geometric.typing import SparseTensor, Tensor, PairTensor, Adj, OptPairTensor, Union, OptTensor
+from torch_geometric.nn import conv, glob
+from torch_geometric.typing import Tensor, PairTensor, Adj, Union, OptTensor
+from torch_geometric.utils import to_undirected, degree
+
+from torch_cluster.knn import knn_graph
 
 from miss import MISSPool
 
@@ -41,7 +43,7 @@ class WeightedEdgeConv(conv.EdgeConv):
 
 
 class GNN(nn.Module):
-    def __init__(self, dataset: Dataset, hidden=64, knn=32, conv_aggr='add', **pool_kwargs):
+    def __init__(self, dataset: Dataset, hidden=64, knn=16, conv_aggr='add', **pool_kwargs):
         super(GNN, self).__init__()
 
         pos = dataset[0].pos
@@ -62,14 +64,10 @@ class GNN(nn.Module):
         self.lin_out = MLP(16*hidden, 8*hidden, 4*hidden, dataset.num_classes, dropout=0.5, bias=True, norm='batch')
 
     def forward(self, data):
-        x, pos, batch, n, b = data.x, data.pos, data.batch, data.num_nodes, data.num_graphs
-        edge_index = knn_graph(pos, self.knn, batch, True)
-        edge_weight = torch.ones_like(edge_index[0], dtype=torch.float)/self.knn
-        
-        if x is None:
-            x = pos
-        elif pos is not None:
-            x = torch.cat([x, pos], dim=-1)
+        x, batch, n, b = data.pos, data.batch, data.num_nodes, data.num_graphs
+        edge_index = knn_graph(x, self.knn, batch, True)
+        row, col = edge_index = to_undirected(edge_index, n)
+        edge_weight = 1./degree(row, n)[row]
         
         xs = []
         p_mats = []
@@ -90,6 +88,8 @@ class GNN(nn.Module):
                 row, col, edge_weight = adj.coo()
                 edge_index = torch.stack([row, col])
         
+        print(x.size(0)/b)
+        
         x = torch.cat(xs, dim=-1)
         x = self.jk(x)
 
@@ -97,32 +97,3 @@ class GNN(nn.Module):
         out = self.lin_out(out)
 
         return out
-
-
-class GCN(GNN):
-    def __init__(self, *args, **kwargs):
-        super(GCN, self).__init__(gnn="GCNConv", *args, **kwargs)
-
-
-class GIN(GNN):
-    def __init__(self, dataset, hidden=90, *args, **kwargs):
-        super(GIN, self).__init__(dataset, gnn="GINConv", hidden=hidden, *args, **kwargs)  # noqa
-
-
-class GraphSAGEConv(conv.SAGEConv):
-    def __init__(self, in_channels, out_channels, *args, **kwargs):
-        super(GraphSAGEConv, self).__init__(in_channels, out_channels, *args, **kwargs)
-        self.aggr = "max"
-        self.pool_lin = nn.Linear(in_channels, in_channels)
-        self.fuse = False
-
-    def message(self, x_j: torch.Tensor) -> torch.Tensor:
-        return F.relu(self.pool_lin(x_j))
-
-    def message_and_aggregate(self, adj_t: SparseTensor, x: OptPairTensor) -> Tensor:
-        return NotImplemented
-
-
-class GraphSAGE(GNN):
-    def __init__(self, dataset, hidden=90, *args, **kwargs):
-        super(GraphSAGE, self).__init__(dataset, gnn=GraphSAGEConv, hidden=hidden, *args, **kwargs)  # noqa
