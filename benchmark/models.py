@@ -68,13 +68,14 @@ class GNN(nn.Module):
             WeightedEdgeConv(MLP(2*hidden, 2*hidden, 2*hidden, dropout=0), aggr=aggr),
             WeightedEdgeConv(MLP(4*hidden, 4*hidden, 4*hidden, dropout=0), aggr=aggr),
         ])
-        
+
+        self.jk = MLP(8*hidden, 16*hidden, dropout=0)
         self.lin_out = MLP(16*hidden, 8*hidden, 4*hidden, dataset.num_classes, dropout=0.5)
 
     def forward(self, data):
         x, pos, batch, n, b = data.x, data.pos, data.batch, data.num_nodes, data.num_graphs
         edge_index = knn_graph(pos, self.knn, batch, True)
-        edge_weight = torch.ones_like(edge_index[0], dtype=torch.float)
+        edge_weight = torch.ones_like(edge_index[0], dtype=torch.float)/self.knn
         
         if x is None:
             x = pos
@@ -82,21 +83,31 @@ class GNN(nn.Module):
             x = torch.cat([x, pos], dim=-1)
         
         xs = []
+        p_mats = []
             
         for i, gnn in enumerate(self.conv):
             x = gnn(x, edge_index, edge_weight)
-            xs.append(glob.global_add_pool(x, batch, b))
-            xs.append(glob.global_max_pool(x, batch, b))
+            x_exp = x
+
+            for p_mat in reversed(p_mats):
+                x_exp = self.pool.unpool(p_mat, x_exp)[0]
+
+            xs.append(x_exp)
             
             if i < len(self.conv) - 1:
-                adj, x, batch = self.pool(edge_index, edge_weight, x, batch=batch)
+                adj, p_mat, _, x, _ = self.pool(edge_index, edge_weight, x)
+                p_mats.append(p_mat)
+
                 row, col, edge_weight = adj.coo()
                 edge_index = torch.stack([row, col])
         
-        out = torch.cat(xs, dim=-1)
+        x = torch.cat(xs, dim=-1)
+        x = self.jk(x)
+
+        out = glob.global_max_pool(x, batch, b)
         out = self.lin_out(out)
 
-        return F.softmax(out, dim=-1)
+        return out
 
 
 class GCN(GNN):
