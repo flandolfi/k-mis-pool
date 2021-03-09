@@ -88,8 +88,6 @@ class GNN(nn.Module):
                 row, col, edge_weight = adj.coo()
                 edge_index = torch.stack([row, col])
         
-        print(x.size(0)/b)
-        
         x = torch.cat(xs, dim=-1)
         x = self.jk(x)
 
