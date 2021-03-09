@@ -1,5 +1,3 @@
-from typing import Callable
-
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -12,12 +10,14 @@ from miss import MISSPool
 
 
 class MLP(nn.Sequential):
-    def __init__(self, *hidden, dropout=0., batch_norm=True):
+    def __init__(self, *hidden, dropout=0., norm=None):
         modules = []
         
         for ch_in, ch_out in zip(hidden[:-1], hidden[1:]):
-            if batch_norm:
-                modules.append(nn.BatchNorm1d(ch_in))
+            if norm == 'batch' or norm is True:
+                modules.append(nn.BatchNorm1d(ch_in, momentum=0.9))
+            elif norm == 'layer':
+                modules.append(nn.LayerNorm(ch_in))
                 
             modules.append(nn.LeakyReLU())
             
@@ -52,7 +52,7 @@ class WeightedEdgeConv(conv.EdgeConv):
 
 
 class GNN(nn.Module):
-    def __init__(self, dataset: Dataset, hidden=64, knn=16, aggr='add', **pool_kwargs):
+    def __init__(self, dataset: Dataset, hidden=64, knn=16, conv_aggr='add', **pool_kwargs):
         super(GNN, self).__init__()
 
         pos = dataset[0].pos
@@ -63,14 +63,14 @@ class GNN(nn.Module):
         self.pool = MISSPool(**pool_kwargs)
         
         self.conv = nn.ModuleList([
-            WeightedEdgeConv(MLP(2*in_dim, hidden, hidden, dropout=0), aggr=aggr),
-            WeightedEdgeConv(MLP(2*hidden, hidden, hidden, dropout=0), aggr=aggr),
-            WeightedEdgeConv(MLP(2*hidden, 2*hidden, 2*hidden, dropout=0), aggr=aggr),
-            WeightedEdgeConv(MLP(4*hidden, 4*hidden, 4*hidden, dropout=0), aggr=aggr),
+            WeightedEdgeConv(MLP(2*in_dim, hidden, hidden, dropout=0, norm='batch'), aggr=conv_aggr),
+            WeightedEdgeConv(MLP(2*hidden, hidden, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            WeightedEdgeConv(MLP(2*hidden, 2*hidden, 2*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            WeightedEdgeConv(MLP(4*hidden, 4*hidden, 4*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
         ])
 
-        self.jk = MLP(8*hidden, 16*hidden, dropout=0)
-        self.lin_out = MLP(16*hidden, 8*hidden, 4*hidden, dataset.num_classes, dropout=0.5)
+        self.jk = MLP(8*hidden, 16*hidden, dropout=0, norm='layer')
+        self.lin_out = MLP(16*hidden, 8*hidden, 4*hidden, dataset.num_classes, dropout=0.5, norm='batch')
 
     def forward(self, data):
         x, pos, batch, n, b = data.x, data.pos, data.batch, data.num_nodes, data.num_graphs
