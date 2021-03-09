@@ -11,7 +11,7 @@ class MISSPool(MessagePassing):
     propagate_type = {'x': Tensor}
 
     def __init__(self, pool_size=1, stride=None, ordering='random', add_self_loops=False,
-                 normalize=True, aggr='add', weighted=True, laplacian_smoothing=True):
+                 normalize=True, aggr='add', weighted=True):
         super(MISSPool, self).__init__(aggr=aggr)
 
         self.pool_size = pool_size
@@ -20,7 +20,6 @@ class MISSPool(MessagePassing):
         self.ordering: orderings.Ordering = self._get_ordering(ordering)
         self.normalize = normalize
         self.weighted = weighted
-        self.laplacian_smoothing = laplacian_smoothing
 
     @staticmethod
     def _get_ordering(ordering):
@@ -51,25 +50,29 @@ class MISSPool(MessagePassing):
 
         return getattr(orderings, cls_name)(**opts)
 
-    def pool(self, p_mat: SparseTensor, mis: Tensor, *xs: OptTensor) -> Tuple[OptTensor, ...]:
+    def pool(self, p_mat: SparseTensor, *xs: OptTensor) -> Tuple[OptTensor, ...]:
         if not self.weighted:
             p_mat.set_value_(torch.ones_like(p_mat.storage.value()), layout="coo")
-            
-        deg = self.propagate(p_mat, x=torch.ones(p_mat.size(-1), 1, dtype=torch.float, device=p_mat.device()))
+
         out = []
 
         for x in xs:
             if x is None:
                 out.append(None)
             else:
-                x_prime = self.propagate(p_mat, x=x)
-                
-                if self.laplacian_smoothing:
-                    x_prime = x[mis]*(1 + deg) - x_prime
-                    
-                out.append(x_prime)
+                out.append(self.propagate(p_mat, x=x))
                 
         return tuple(out)
+
+    def unpool(self, p_mat: SparseTensor, *xs: OptTensor) -> Tuple[OptTensor, ...]:
+        u_mat = p_mat.t()
+
+        if self.normalize:
+            norm = u_mat.sum(-1).unsqueeze(-1)
+            norm = torch.where(norm == 0, torch.ones_like(norm), 1. / norm)
+            u_mat = u_mat * norm
+
+        return self.pool(u_mat, *xs)
 
     def coarsen(self, s_mat: SparseTensor, adj: SparseTensor) -> SparseTensor:
         if self.normalize:
@@ -79,6 +82,15 @@ class MISSPool(MessagePassing):
             return (s_mat @ adj) @ (s_mat.t() * norm)
 
         return (s_mat @ adj) @ s_mat.t()
+
+    def expand(self, s_mat: SparseTensor, adj: SparseTensor) -> SparseTensor:
+        if self.normalize:
+            norm = s_mat.t().sum(-1).unsqueeze(-1)
+            norm = torch.where(norm == 0, torch.ones_like(norm), 1. / norm)
+
+            return (s_mat.t() * norm) @ (adj @ s_mat)
+
+        return s_mat.t() @ (adj @ s_mat)
 
     @staticmethod
     def get_coarsening_matrices(adj: SparseTensor, mis: Tensor, p: int, s: int) -> Tuple[SparseTensor, SparseTensor]:
@@ -138,13 +150,13 @@ class MISSPool(MessagePassing):
         mis = self._get_mis(adj, *xs)
         p_mat, s_mat = self.get_coarsening_matrices(adj, mis, self.pool_size, self.stride)
 
-        x = self.pool(p_mat, mis, *xs)
+        x = self.pool(p_mat, *xs)
         adj = self.coarsen(s_mat, adj)
         
         if batch is not None:
             batch = batch[mis]
         
-        return adj, *x, batch
+        return adj, p_mat, s_mat, *x, batch
 
     def message_and_aggregate(self, adj_t: SparseTensor, x: Tensor) -> Tensor:  # noqa
         return adj_t.matmul(x, reduce=self.aggr)
