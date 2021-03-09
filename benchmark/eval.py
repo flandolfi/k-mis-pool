@@ -11,7 +11,7 @@ from torch_geometric import transforms as T
 
 import skorch
 from skorch import NeuralNetClassifier
-from skorch.callbacks import ProgressBar, Checkpoint, EpochScoring
+from skorch.callbacks import ProgressBar, Checkpoint, EpochScoring, LRScheduler
 from skorch.dataset import CVSplit
 
 from benchmark.models import GNN
@@ -71,9 +71,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 DEFAULT_NET_PARAMS = {
     'module__pool_size': 1,
     'module__ordering': 'random',
-    'optimizer': torch.optim.Adam,
     'device': device,
-    'max_epochs': 999999999,
     'verbose': 1,
     'lr': 0.001,
     'batch_size': -1,
@@ -87,45 +85,48 @@ DEFAULT_NET_PARAMS = {
 }
 
 
-def modelnet(root: str = './dataset/ModelNet40/',
-             num_nodes: int = 4096,
-             model_path: str = None,
-             history_path: str = None,
+def modelnet(num_points: int = 1024,
              train_split: float = 0.1,
+             max_epochs: int = 250,
+             optimizer: str = 'Adam',
+             dataset_path: str = './dataset/ModelNet40/',
              **net_kwargs):
-    ds = ModelNet(root, '40', train=True,
-                  transform=T.Compose([
-                      T.NormalizeScale(),
-                      T.SamplePoints(num=num_nodes)
-                  ]))
+    ds = ModelNet(dataset_path, '40', train=True,
+                  pre_transform=T.NormalizeScale(),
+                  transform=T.SamplePoints(num=num_points))
     
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update({
+        'optimizer': getattr(torch.optim, optimizer),
+        'optimizer__weight_decay': 0.0001,
+        'max_epochs': max_epochs,
+        'train_split': CVSplit(cv=train_split, stratified=True, random_state=42),
         'callbacks': [
             ('progress_bar', ProgressBar),
-            ('train_acc', EpochScoring(
-                'accuracy',
-                name='train_acc',
-                on_train=True,
-                lower_is_better=False)),
+            ('valid_bal', EpochScoring),
+            ('lr_scheduler', LRScheduler),
             ('checkpoint', Checkpoint),
         ],
-        'train_split': CVSplit(cv=train_split, stratified=True, random_state=42),
         'callbacks__checkpoint__monitor': 'valid_acc_best',
-        'callbacks__checkpoint__f_params': model_path,
+        'callbacks__checkpoint__f_params': 'params.pt',
         'callbacks__checkpoint__f_optimizer': None,
         'callbacks__checkpoint__f_criterion': None,
-        'callbacks__checkpoint__f_history': history_path,
+        'callbacks__checkpoint__f_history': 'history.json',
         'callbacks__checkpoint__f_pickle': None,
+        'callbacks__lr_scheduler__policy': torch.optim.lr_scheduler.CosineAnnealingLR,
+        'callbacks__lr_scheduler__T_max': max_epochs,
+        'callbacks__valid_bal__scoring': 'balanced_accuracy',
+        'callbacks__valid_bal__name': 'valid_bal',
+        'callbacks__valid_bal__on_train': False,
+        'callbacks__valid_bal__lower_is_better': False
     })
     opts.update(net_kwargs)
-    net = NeuralNetClassifier(
+    
+    NeuralNetClassifier(
         module=GNN,
         module__dataset=ds,
         **opts
-    )
-
-    net.fit(ds, ds.data.y)
+    ).fit(ds, ds.data.y)
 
 
 if __name__ == "__main__":
