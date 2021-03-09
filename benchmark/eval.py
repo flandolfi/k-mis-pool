@@ -20,8 +20,8 @@ from benchmark.models import GNN
 class SkorchDataset(Dataset):
     def __init__(self, X, y=None, transform=None):
         super(SkorchDataset, self).__init__(list(X))
-        self.y = y
-        self.y_indexing = check_indexing(y)
+        self.y = torch.cat([data.y for data in self.X])
+        self.y_indexing = check_indexing(self.y)
         self.transform = transform
         
         self._len = len(X)
