@@ -91,10 +91,13 @@ def modelnet(root: str = './dataset/ModelNet40/',
              num_nodes: int = 4096,
              model_path: str = None,
              history_path: str = None,
+             train_split: float = 0.1,
              **net_kwargs):
-    ds = ModelNet(root, '40', train=True, transform=T.FixedPoints(num=num_nodes, replace=False, allow_duplicates=False))
-    ds.data.face = None
-    ds.slices.pop('face')
+    ds = ModelNet(root, '40', train=True,
+                  transform=T.Compose([
+                      T.NormalizeScale(),
+                      T.SamplePoints(num=num_nodes)
+                  ]))
     
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update({
@@ -107,7 +110,7 @@ def modelnet(root: str = './dataset/ModelNet40/',
                 lower_is_better=False)),
             ('checkpoint', Checkpoint),
         ],
-        'train_split': CVSplit(cv=0.1, stratified=True, random_state=42),
+        'train_split': CVSplit(cv=train_split, stratified=True, random_state=42),
         'callbacks__checkpoint__monitor': 'valid_acc_best',
         'callbacks__checkpoint__f_params': model_path,
         'callbacks__checkpoint__f_optimizer': None,
