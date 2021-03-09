@@ -10,7 +10,7 @@ from miss import MISSPool
 
 
 class MLP(nn.Sequential):
-    def __init__(self, *hidden, dropout=0., norm=None):
+    def __init__(self, *hidden, dropout=0., bias=False, norm=None):
         modules = []
         
         for ch_in, ch_out in zip(hidden[:-1], hidden[1:]):
@@ -19,25 +19,14 @@ class MLP(nn.Sequential):
             elif norm == 'layer':
                 modules.append(nn.LayerNorm(ch_in))
                 
-            modules.append(nn.LeakyReLU())
+            modules.append(nn.LeakyReLU(negative_slope=0.2))
             
             if not dropout:
                 modules.append(nn.Dropout(dropout))
             
-            modules.append(nn.Linear(ch_in, ch_out))
+            modules.append(nn.Linear(ch_in, ch_out, bias=bias))
         
         super(MLP, self).__init__(*modules)
-
-
-class MPSeq(nn.Sequential):
-    def forward(self, input, *args, **kwargs):
-        for module in self:
-            if isinstance(module, conv.MessagePassing):
-                input = module(input, *args, **kwargs)
-            else:
-                input = module(input)
-        
-        return input
 
 
 class WeightedEdgeConv(conv.EdgeConv):
@@ -70,7 +59,7 @@ class GNN(nn.Module):
         ])
 
         self.jk = MLP(8*hidden, 16*hidden, dropout=0, norm='layer')
-        self.lin_out = MLP(16*hidden, 8*hidden, 4*hidden, dataset.num_classes, dropout=0.5, norm='batch')
+        self.lin_out = MLP(16*hidden, 8*hidden, 4*hidden, dataset.num_classes, dropout=0.5, bias=True, norm='batch')
 
     def forward(self, data):
         x, pos, batch, n, b = data.x, data.pos, data.batch, data.num_nodes, data.num_graphs
