@@ -92,8 +92,10 @@ def train(num_points: int = 1024,
           train_split: float = 0.1,
           model: str = 'ChebNet',
           optimizer: str = 'Adam',
-          dataset_path: str = './dataset/ModelNet40/',
           weighted_loss: bool = False,
+          dataset_path: str = './dataset/ModelNet40/',
+          params_path: str = 'params.pt',
+          history_path: str = None,
           **net_kwargs):
     ds = ModelNet(dataset_path, '40', train=True,
                   pre_transform=T.NormalizeScale(),
@@ -124,10 +126,10 @@ def train(num_points: int = 1024,
             ('checkpoint', Checkpoint),
         ],
         'callbacks__checkpoint__monitor': 'valid_acc_best',
-        'callbacks__checkpoint__f_params': 'params.pt',
+        'callbacks__checkpoint__f_params': params_path,
         'callbacks__checkpoint__f_optimizer': None,
         'callbacks__checkpoint__f_criterion': None,
-        'callbacks__checkpoint__f_history': 'history.json',
+        'callbacks__checkpoint__f_history': history_path,
         'callbacks__checkpoint__f_pickle': None,
         'callbacks__lr_scheduler__policy': torch.optim.lr_scheduler.CosineAnnealingWarmRestarts,
         'callbacks__lr_scheduler__T_0': 10,
@@ -147,7 +149,7 @@ def train(num_points: int = 1024,
     ).fit(ds, ds.data.y)
 
 
-def test(params: str = 'params.pt',
+def test(params_path: str = 'params.pt',
          repetitions: int = 1,
          aggregation: str = 'mean',
          num_points: int = 1024,
@@ -169,7 +171,7 @@ def test(params: str = 'params.pt',
         **opts
     ).initialize()
 
-    net.load_params(params)
+    net.load_params(params_path)
 
     sampled_ds = list(ds)
     prob = np.stack([net.predict_proba(sampled_ds) for _ in range(repetitions)])
