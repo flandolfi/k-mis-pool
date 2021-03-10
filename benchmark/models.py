@@ -44,7 +44,7 @@ class WeightedEdgeConv(conv.EdgeConv):
 
 
 class DGCNN(nn.Module):
-    def __init__(self, dataset: Dataset, hidden=64, knn=16, conv_aggr='add', **pool_kwargs):
+    def __init__(self, dataset: Dataset, hidden=64, knn=16, conv_aggr='max', **pool_kwargs):
         super(DGCNN, self).__init__()
 
         pos = dataset[0].pos
