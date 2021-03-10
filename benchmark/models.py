@@ -163,7 +163,7 @@ class ChebNet(nn.Module):
         p_mats = []
         first_batch = batch
 
-        for i, (ln, gnn, mlp) in enumerate(zip(self.norm, self.conv, self.mlp)):
+        for i, (ln, gnn) in enumerate(zip(self.norm, self.conv)):
             if i > 0:
                 x = F.leaky_relu(ln(x), negative_slope=0.2)
 
