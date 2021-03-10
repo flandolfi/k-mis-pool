@@ -139,9 +139,6 @@ class MISSPool(MessagePassing):
         return adj
 
     def _get_mis(self, adj: Adj, *xs: OptTensor) -> Tensor:
-        if not self.training:
-            return torch.ones(adj.size(0), dtype=torch.long, device=adj.device())
-        
         x = None
 
         for x in xs:
