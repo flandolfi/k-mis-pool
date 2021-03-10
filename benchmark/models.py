@@ -55,10 +55,10 @@ class WDGCNN(nn.Module):
         self.pool = MISSPool(**pool_kwargs)
         
         self.conv = nn.ModuleList([
-            WeightedEdgeConv(MLP(2*in_dim, hidden, hidden, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
-            WeightedEdgeConv(MLP(2*hidden, hidden, hidden, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
-            WeightedEdgeConv(MLP(2*hidden, 2*hidden, 2*hidden, 2*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
-            WeightedEdgeConv(MLP(4*hidden, 4*hidden, 4*hidden, 4*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            WeightedEdgeConv(MLP(2*in_dim, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            WeightedEdgeConv(MLP(2*hidden, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            WeightedEdgeConv(MLP(2*hidden, 2*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            WeightedEdgeConv(MLP(4*hidden, 4*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
         ])
 
         self.jk = MLP(8*hidden, 16*hidden, dropout=0, norm='layer')
@@ -126,15 +126,8 @@ class ChebNet(nn.Module):
             conv.ChebConv(2*hidden, 4*hidden, K=2, normalization=None, bias=False),
         ])
 
-        self.mlp = nn.ModuleList([
-            MLP(hidden, hidden, hidden, dropout=False, norm='layer'),
-            MLP(hidden, hidden, hidden, dropout=False, norm='layer'),
-            MLP(2*hidden, 2*hidden, 2*hidden, dropout=False, norm='layer'),
-            MLP(4*hidden, 4*hidden, 4*hidden, dropout=False, norm='layer'),
-        ])
-
-        self.jk = MLP(8 * hidden, 16 * hidden, dropout=0, norm='layer')
-        self.lin_out = MLP(32 * hidden, 8 * hidden, 4 * hidden, dataset.num_classes, dropout=0.5, bias=True,
+        self.jk = MLP(8*hidden, 16*hidden, dropout=0, norm='layer')
+        self.lin_out = MLP(32*hidden, 8*hidden, 4*hidden, dataset.num_classes, dropout=0.5, bias=True,
                            norm='batch')
 
     def forward(self, data):
@@ -148,12 +141,11 @@ class ChebNet(nn.Module):
         p_mats = []
         first_batch = batch
 
-        for i, (ln, gnn, mlp) in enumerate(zip(self.norm, self.conv, self.mlp)):
+        for i, (ln, gnn) in enumerate(zip(self.norm, self.conv)):
             if i > 0:
                 x = F.leaky_relu(ln(x), negative_slope=0.2)
 
             x = gnn(x, edge_index, edge_weight, batch=batch, lambda_max=lambda_max)
-            x = mlp(x)
             x_exp = x
 
             for p_mat in reversed(p_mats):
