@@ -61,7 +61,7 @@ class GNN(nn.Module):
         ])
 
         self.jk = MLP(8*hidden, 16*hidden, dropout=0, norm='layer')
-        self.lin_out = MLP(16*hidden, 8*hidden, 4*hidden, dataset.num_classes, dropout=0.5, bias=True, norm='batch')
+        self.lin_out = MLP(32*hidden, 8*hidden, 4*hidden, dataset.num_classes, dropout=0.5, bias=True, norm='batch')
 
     def forward(self, data):
         x, batch, n, b = data.pos, data.batch, data.num_nodes, data.num_graphs
@@ -91,7 +91,10 @@ class GNN(nn.Module):
         x = torch.cat(xs, dim=-1)
         x = self.jk(x)
 
-        out = glob.global_max_pool(x, batch, b)
+        out = torch.cat([
+            glob.global_max_pool(x, batch, b),
+            glob.global_mean_pool(x, batch, b)
+        ], dim=-1)
         out = self.lin_out(out)
 
         return out
