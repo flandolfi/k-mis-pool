@@ -80,7 +80,11 @@ DEFAULT_NET_PARAMS = {
     'iterator_train__shuffle': True,
     'iterator_valid__shuffle': False,
     'iterator_train__drop_last': True,
-    'iterator_valid__drop_last': False
+    'iterator_valid__drop_last': False,
+    'iterator_train__num_workers': 8,
+    'iterator_valid__num_workers': 8,
+    'iterator_train__persistent_workers': True,
+    'iterator_valid__persistent_workers': True,
 }
 
 
