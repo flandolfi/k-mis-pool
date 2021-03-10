@@ -75,10 +75,6 @@ DEFAULT_NET_PARAMS = {
     'module__pool_size': 1,
     'module__ordering': 'random',
     'device': device,
-    'verbose': 1,
-    'lr': 0.001,
-    'batch_size': 32,
-    'max_epochs': 9999999999,
     'iterator_train': DataLoader,
     'iterator_valid': DataLoader,
     'iterator_train__shuffle': True,
@@ -108,6 +104,10 @@ def train(num_points: int = 1024,
     
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update({
+        'verbose': 1,
+        'lr': 0.001,
+        'batch_size': 32,
+        'max_epochs': 9999999999,
         'optimizer': getattr(torch.optim, optimizer),
         'optimizer__weight_decay': 0.0001,
         'train_split': CVSplit(cv=train_split, stratified=True, random_state=42),
@@ -128,13 +128,13 @@ def train(num_points: int = 1024,
         'callbacks__lr_scheduler__policy': torch.optim.lr_scheduler.CosineAnnealingWarmRestarts,
         'callbacks__lr_scheduler__T_0': 10,
         'callbacks__lr_scheduler__T_mult': 2,
-        'callbacks__lr_scheduler__eta_min': 0,
         'callbacks__valid_bal__scoring': 'balanced_accuracy',
         'callbacks__valid_bal__name': 'valid_bal',
         'callbacks__valid_bal__on_train': False,
         'callbacks__valid_bal__lower_is_better': False
     })
     opts.update(net_kwargs)
+    opts.setdefault('callbacks__lr_scheduler__eta_min', opts['lr'])
     
     NeuralNetClassifier(
         module=getattr(models, model),
