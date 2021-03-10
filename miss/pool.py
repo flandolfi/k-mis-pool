@@ -49,10 +49,18 @@ class MISSPool(MessagePassing):
             return orderings.Lambda(getattr(torch, tokens[-1]), **opts)
 
         return getattr(orderings, cls_name)(**opts)
+    
+    @staticmethod
+    def normalize_dim(mat: SparseTensor, dim: int = -1) -> SparseTensor:
+        norm = mat.sum(dim).unsqueeze(dim)
+        norm = torch.where(norm == 0, torch.ones_like(norm), 1. / norm)
+        return mat * norm
 
     def pool(self, p_mat: SparseTensor, *xs: OptTensor) -> Tuple[OptTensor, ...]:
         if not self.weighted:
-            p_mat.set_value_(torch.ones_like(p_mat.storage.value()), layout="coo")
+            p_mat = p_mat.set_value(torch.ones_like(p_mat.storage.value()), layout="coo")
+        elif self.normalize:
+            p_mat = self.normalize_dim(p_mat, 0)
 
         out = []
 
@@ -65,30 +73,28 @@ class MISSPool(MessagePassing):
         return tuple(out)
 
     def unpool(self, p_mat: SparseTensor, *xs: OptTensor) -> Tuple[OptTensor, ...]:
-        u_mat = p_mat.t()
+        if not self.weighted:
+            p_mat = p_mat.set_value(torch.ones_like(p_mat.storage.value()), layout="coo")
 
-        if self.normalize:
-            norm = u_mat.sum(-1).unsqueeze(-1)
-            norm = torch.where(norm == 0, torch.ones_like(norm), 1. / norm)
-            u_mat = u_mat * norm
+        out = []
 
-        return self.pool(u_mat, *xs)
+        for x in xs:
+            if x is None:
+                out.append(None)
+            else:
+                out.append(self.propagate(p_mat.t(), x=x))
+                
+        return tuple(out)
 
     def coarsen(self, s_mat: SparseTensor, adj: SparseTensor) -> SparseTensor:
         if self.normalize:
-            norm = s_mat.t().sum(-1).unsqueeze(-1)
-            norm = torch.where(norm == 0, torch.ones_like(norm), 1. / norm)
-
-            return (s_mat @ adj) @ (s_mat.t() * norm)
+            return (s_mat @ adj) @ self.normalize_dim(s_mat, 0).t()
 
         return (s_mat @ adj) @ s_mat.t()
 
     def expand(self, s_mat: SparseTensor, adj: SparseTensor) -> SparseTensor:
         if self.normalize:
-            norm = s_mat.t().sum(-1).unsqueeze(-1)
-            norm = torch.where(norm == 0, torch.ones_like(norm), 1. / norm)
-
-            return (s_mat.t() * norm) @ (adj @ s_mat)
+            return self.normalize_dim(s_mat, 0).t() @ (adj @ s_mat)
 
         return s_mat.t() @ (adj @ s_mat)
 
@@ -128,8 +134,7 @@ class MISSPool(MessagePassing):
             adj = adj.fill_diag(1.)
 
         if self.normalize:
-            deg = adj.sum(-1).unsqueeze(-1)
-            adj = adj * torch.where(deg == 0, torch.zeros_like(deg), 1. / deg)
+            adj = self.normalize_dim(adj, -1)
 
         return adj
 
