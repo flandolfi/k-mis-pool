@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 from torch_geometric.data import Dataset
 from torch_geometric.nn import conv, glob
@@ -42,9 +43,9 @@ class WeightedEdgeConv(conv.EdgeConv):
         return edge_weight.view(-1, 1) * self.nn(torch.cat([x_i, x_j - x_i], dim=-1))
 
 
-class GNN(nn.Module):
+class WDGCNN(nn.Module):
     def __init__(self, dataset: Dataset, hidden=64, knn=16, conv_aggr='add', **pool_kwargs):
-        super(GNN, self).__init__()
+        super(WDGCNN, self).__init__()
 
         pos = dataset[0].pos
         pos_dim = 0 if pos is None else pos.size(1)
@@ -54,10 +55,10 @@ class GNN(nn.Module):
         self.pool = MISSPool(**pool_kwargs)
         
         self.conv = nn.ModuleList([
-            WeightedEdgeConv(MLP(2*in_dim, hidden, hidden, dropout=0, norm='batch'), aggr=conv_aggr),
-            WeightedEdgeConv(MLP(2*hidden, hidden, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
-            WeightedEdgeConv(MLP(2*hidden, 2*hidden, 2*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
-            WeightedEdgeConv(MLP(4*hidden, 4*hidden, 4*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            WeightedEdgeConv(MLP(2*in_dim, hidden, hidden, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            WeightedEdgeConv(MLP(2*hidden, hidden, hidden, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            WeightedEdgeConv(MLP(2*hidden, 2*hidden, 2*hidden, 2*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            WeightedEdgeConv(MLP(4*hidden, 4*hidden, 4*hidden, 4*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
         ])
 
         self.jk = MLP(8*hidden, 16*hidden, dropout=0, norm='layer')
@@ -94,6 +95,85 @@ class GNN(nn.Module):
         out = torch.cat([
             glob.global_max_pool(x, batch, b),
             glob.global_mean_pool(x, batch, b)
+        ], dim=-1)
+        out = self.lin_out(out)
+
+        return out
+
+
+class ChebNet(nn.Module):
+    def __init__(self, dataset: Dataset, hidden=64, knn=16, **pool_kwargs):
+        super(ChebNet, self).__init__()
+
+        pos = dataset[0].pos
+        pos_dim = 0 if pos is None else pos.size(1)
+        in_dim = dataset.num_node_features + pos_dim
+
+        self.knn = knn
+        self.pool = MISSPool(**pool_kwargs)
+
+        self.norm = nn.ModuleList([
+            nn.LayerNorm(in_dim),
+            nn.LayerNorm(hidden),
+            nn.LayerNorm(hidden),
+            nn.LayerNorm(2*hidden)
+        ])
+
+        self.conv = nn.ModuleList([
+            conv.ChebConv(in_dim, hidden, K=2, normalization=None, bias=False),
+            conv.ChebConv(hidden, hidden, K=2, normalization=None, bias=False),
+            conv.ChebConv(hidden, 2*hidden, K=2, normalization=None, bias=False),
+            conv.ChebConv(2*hidden, 4*hidden, K=2, normalization=None, bias=False),
+        ])
+
+        self.mlp = nn.ModuleList([
+            MLP(hidden, hidden, hidden, dropout=False, norm='layer'),
+            MLP(hidden, hidden, hidden, dropout=False, norm='layer'),
+            MLP(2*hidden, 2*hidden, 2*hidden, dropout=False, norm='layer'),
+            MLP(4*hidden, 4*hidden, 4*hidden, dropout=False, norm='layer'),
+        ])
+
+        self.jk = MLP(8 * hidden, 16 * hidden, dropout=0, norm='layer')
+        self.lin_out = MLP(32 * hidden, 8 * hidden, 4 * hidden, dataset.num_classes, dropout=0.5, bias=True,
+                           norm='batch')
+
+    def forward(self, data):
+        x, batch, n, b = data.pos, data.batch, data.num_nodes, data.num_graphs
+        edge_index = knn_graph(x, self.knn, batch, True)
+        row, col = edge_index = to_undirected(edge_index, n)
+        edge_weight = 1. / degree(row, n)[row]
+        lambda_max = torch.ones(1, dtype=torch.float, device=x.device)
+
+        xs = []
+        p_mats = []
+        first_batch = batch
+
+        for i, (ln, gnn, mlp) in enumerate(zip(self.norm, self.conv, self.mlp)):
+            if i > 0:
+                x = F.leaky_relu(ln(x), negative_slope=0.2)
+
+            x = gnn(x, edge_index, edge_weight, batch=batch, lambda_max=lambda_max)
+            x = mlp(x)
+            x_exp = x
+
+            for p_mat in reversed(p_mats):
+                x_exp = self.pool.unpool(p_mat, x_exp)[0]
+
+            xs.append(x_exp)
+
+            if i < len(self.conv) - 1:
+                adj, p_mat, _, x, batch = self.pool(edge_index, edge_weight, x, batch=batch)
+                p_mats.append(p_mat)
+
+                row, col, edge_weight = adj.coo()
+                edge_index = torch.stack([row, col])
+
+        x = torch.cat(xs, dim=-1)
+        x = self.jk(x)
+
+        out = torch.cat([
+            glob.global_max_pool(x, first_batch, b),
+            glob.global_mean_pool(x, first_batch, b)
         ], dim=-1)
         out = self.lin_out(out)
 
