@@ -90,7 +90,7 @@ DEFAULT_NET_PARAMS = {
 
 def train(num_points: int = 1024,
           train_split: float = 0.1,
-          model: str = 'ChebNet',
+          model: str = 'WDGCNN',
           optimizer: str = 'Adam',
           weighted_loss: bool = False,
           cosine_annealing: bool = False,
