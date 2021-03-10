@@ -93,6 +93,7 @@ def train(num_points: int = 1024,
           model: str = 'ChebNet',
           optimizer: str = 'Adam',
           weighted_loss: bool = False,
+          cosine_annealing: bool = False,
           dataset_path: str = './dataset/ModelNet40/',
           params_path: str = 'params.pt',
           history_path: str = None,
@@ -140,7 +141,7 @@ def train(num_points: int = 1024,
         'callbacks__valid_bal__lower_is_better': False
     })
     opts.update(net_kwargs)
-    opts.setdefault('callbacks__lr_scheduler__eta_min', opts['lr'])
+    opts.setdefault('callbacks__lr_scheduler__eta_min', 0 if cosine_annealing else opts['lr'])
     
     NeuralNetClassifier(
         module=getattr(models, model),
