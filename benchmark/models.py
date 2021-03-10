@@ -56,15 +56,14 @@ class DGCNN(nn.Module):
         self.weighted_conv = False
 
         self.conv = nn.ModuleList([
-            conv.EdgeConv(MLP(2 * in_dim, hidden, hidden, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
-            conv.EdgeConv(MLP(2 * hidden, hidden, hidden, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
-            conv.EdgeConv(MLP(2 * hidden, 2 * hidden, 2 * hidden, 2 * hidden, dropout=0, norm='layer'), aggr=conv_aggr),
-            conv.EdgeConv(MLP(4 * hidden, 4 * hidden, 4 * hidden, 4 * hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            conv.EdgeConv(MLP(2*in_dim, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            conv.EdgeConv(MLP(2*hidden, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            conv.EdgeConv(MLP(2*hidden, 2*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            conv.EdgeConv(MLP(4*hidden, 4*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
         ])
 
-        self.jk = MLP(8 * hidden, 16 * hidden, dropout=0, norm='layer')
-        self.lin_out = MLP(32 * hidden, 8 * hidden, 4 * hidden, dataset.num_classes, dropout=0.5, bias=True,
-                           norm='batch')
+        self.jk = MLP(8*hidden, 16*hidden, dropout=0, norm='layer')
+        self.lin_out = MLP(32*hidden, 8*hidden, 4*hidden, dataset.num_classes, dropout=0.5, bias=True, norm='batch')
 
     def forward(self, data):
         x, batch, n, b = data.pos, data.batch, data.num_nodes, data.num_graphs
@@ -117,10 +116,10 @@ class WDGCNN(DGCNN):
         self.weighted_conv = True
 
         self.conv = nn.ModuleList([
-            WeightedEdgeConv(MLP(2*in_dim, hidden, hidden, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
-            WeightedEdgeConv(MLP(2*hidden, hidden, hidden, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
-            WeightedEdgeConv(MLP(2*hidden, 2*hidden, 2*hidden, 2*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
-            WeightedEdgeConv(MLP(4*hidden, 4*hidden, 4*hidden, 4*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            WeightedEdgeConv(MLP(2*in_dim, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            WeightedEdgeConv(MLP(2*hidden, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            WeightedEdgeConv(MLP(2*hidden, 2*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            WeightedEdgeConv(MLP(4*hidden, 4*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
         ])
 
 
@@ -149,13 +148,6 @@ class ChebNet(nn.Module):
             conv.ChebConv(2*hidden, 4*hidden, K=2, normalization=None, bias=False),
         ])
 
-        self.mlp = nn.ModuleList([
-            MLP(hidden, hidden, hidden, norm='layer'),
-            MLP(hidden, hidden, hidden, norm='layer'),
-            MLP(2*hidden, 2*hidden, 2*hidden, norm='layer'),
-            MLP(4*hidden, 4*hidden, 4*hidden, norm='layer'),
-        ])
-
         self.jk = MLP(8*hidden, 16*hidden, dropout=0, norm='layer')
         self.lin_out = MLP(32*hidden, 8*hidden, 4*hidden, dataset.num_classes, dropout=0.5, bias=True,
                            norm='batch')
@@ -176,7 +168,6 @@ class ChebNet(nn.Module):
                 x = F.leaky_relu(ln(x), negative_slope=0.2)
 
             x = gnn(x, edge_index, edge_weight, batch=batch, lambda_max=lambda_max)
-            x = mlp(x)
             x_exp = x
 
             for p_mat in reversed(p_mats):
