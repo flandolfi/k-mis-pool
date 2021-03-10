@@ -55,10 +55,10 @@ class WDGCNN(nn.Module):
         self.pool = MISSPool(**pool_kwargs)
         
         self.conv = nn.ModuleList([
-            WeightedEdgeConv(MLP(2*in_dim, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
-            WeightedEdgeConv(MLP(2*hidden, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
-            WeightedEdgeConv(MLP(2*hidden, 2*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
-            WeightedEdgeConv(MLP(4*hidden, 4*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            WeightedEdgeConv(MLP(2*in_dim, hidden, hidden, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            WeightedEdgeConv(MLP(2*hidden, hidden, hidden, hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            WeightedEdgeConv(MLP(2*hidden, 2*hidden, 2*hidden, 2*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
+            WeightedEdgeConv(MLP(4*hidden, 4*hidden, 4*hidden, 4*hidden, dropout=0, norm='layer'), aggr=conv_aggr),
         ])
 
         self.jk = MLP(8*hidden, 16*hidden, dropout=0, norm='layer')
