@@ -140,7 +140,7 @@ class MISSPool(MessagePassing):
 
     def _get_mis(self, adj: Adj, *xs: OptTensor) -> Tensor:
         if not self.training:
-            return torch.ones(adj.size(0), dtype=torch.float, device=adj.device())
+            return torch.ones(adj.size(0), dtype=torch.long, device=adj.device())
         
         x = None
 
