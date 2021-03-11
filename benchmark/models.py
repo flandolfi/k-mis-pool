@@ -1,13 +1,12 @@
 import torch
 from torch import nn
-from torch.nn import functional as F
 
 from torch_geometric.data import Dataset
 from torch_geometric.nn import conv, glob
 from torch_geometric.typing import Tensor, PairTensor, Adj, Union, OptTensor
 from torch_geometric.utils import to_undirected, degree
 
-from torch_cluster import radius_graph, knn_graph
+from torch_cluster import radius_graph
 
 from miss import MISSPool
 
@@ -40,18 +39,18 @@ class WeightedEdgeConv(conv.EdgeConv):
         return self.propagate(edge_index, x=x, edge_weight=edge_weight, size=None)
     
     def message(self, x_i: Tensor, x_j: Tensor, edge_weight: Tensor) -> Tensor:
-        return edge_weight.view(-1, 1) * self.nn(torch.cat([x_i, x_j - x_i], dim=-1))
+        return self.nn(torch.cat([x_i, edge_weight.view(-1, 1) * (x_j - x_i)], dim=-1))
 
 
 class DGCNN(nn.Module):
-    def __init__(self, dataset: Dataset, hidden=64, knn=16, conv_aggr='max', **pool_kwargs):
+    def __init__(self, dataset: Dataset, hidden=64, radius=0.2, conv_aggr='max', **pool_kwargs):
         super(DGCNN, self).__init__()
 
         pos = dataset[0].pos
         pos_dim = 0 if pos is None else pos.size(1)
         in_dim = dataset.num_node_features + pos_dim
 
-        self.knn = knn
+        self.radius = radius
         self.pool = MISSPool(**pool_kwargs)
         self.weighted_conv = False
 
@@ -67,7 +66,7 @@ class DGCNN(nn.Module):
 
     def forward(self, data):
         x, batch, n, b = data.pos, data.batch, data.num_nodes, data.num_graphs
-        edge_index = knn_graph(x, self.knn, batch, True)
+        edge_index = radius_graph(x, self.radius, batch, loop=True)
         row, col = edge_index = to_undirected(edge_index, n)
         edge_weight = 1. / degree(row, n)[row]
 
@@ -107,8 +106,8 @@ class DGCNN(nn.Module):
 
 
 class WDGCNN(DGCNN):
-    def __init__(self, dataset: Dataset, hidden=64, knn=16, conv_aggr='add', **pool_kwargs):
-        super(WDGCNN, self).__init__(dataset, hidden, knn, conv_aggr, **pool_kwargs)
+    def __init__(self, dataset: Dataset, hidden=64, radius=0.2, conv_aggr='max', **pool_kwargs):
+        super(WDGCNN, self).__init__(dataset, hidden, radius, conv_aggr, **pool_kwargs)
 
         pos = dataset[0].pos
         pos_dim = 0 if pos is None else pos.size(1)
@@ -124,35 +123,21 @@ class WDGCNN(DGCNN):
 
 
 class ResBlock(nn.Module):
-    def __init__(self, hidden, num_layers=3):
+    def __init__(self, hidden, num_layers=3, *args, **kwargs):
         super(ResBlock, self).__init__()
 
-        self.norm = nn.ModuleList([
-            nn.LayerNorm(hidden) for _ in range(num_layers)
-        ])
+        sizes = (hidden for _ in range(num_layers))
 
-        self.conv = nn.ModuleList([
-            conv.ChebConv(hidden, hidden, K=2, normalization=None, bias=False) for _ in range(num_layers)
-        ])
-
-        self.mlp = nn.ModuleList([
-            MLP(hidden, hidden, dropout=0, norm='layer') for _ in range(num_layers)
-        ])
+        self.conv = WeightedEdgeConv(MLP(2*hidden, *sizes, dropout=0, norm='layer'), *args, **kwargs)
 
     def forward(self, x, *args, **kwargs):
-        for norm, gnn, mlp in zip(self.norm, self.conv, self.mlp):
-            res_x = x
-            x = F.leaky_relu(norm(x), negative_slope=0.2)
-            x = gnn(x, *args, **kwargs)
-            x = mlp(x) + res_x
-
-        return x
+        return self.conv(x, *args, **kwargs) + x
 
 
-class ChebNet(nn.Module):
+class ResNet(nn.Module):
     def __init__(self, dataset: Dataset, hidden=64, radius=0.125,
                  num_layers=3, num_blocks=5, hidden_factor=2, **pool_kwargs):
-        super(ChebNet, self).__init__()
+        super(ResNet, self).__init__()
 
         pos = dataset[0].pos
         pos_dim = 0 if pos is None else pos.size(1)
@@ -175,7 +160,6 @@ class ChebNet(nn.Module):
         edge_index = radius_graph(x, self.radius, batch, loop=True)
         row, col = edge_index = to_undirected(edge_index, n)
         edge_weight = 1. / degree(row, n)[row]
-        lambda_max = torch.ones(1, dtype=torch.float, device=x.device)
 
         x = self.lin_in(x)
 
@@ -187,7 +171,7 @@ class ChebNet(nn.Module):
                 edge_index = torch.stack([row, col])
                 x = x.repeat(1, 2)
 
-            x = block(x, edge_index, edge_weight, batch=batch, lambda_max=lambda_max)
+            x = block(x, edge_index, edge_weight)
 
         out = torch.cat([
             glob.global_max_pool(x, batch, b),
