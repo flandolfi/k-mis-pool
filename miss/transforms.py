@@ -46,9 +46,15 @@ class Permute(object):
 
 
 class MISSampling(MISSPool):
+    def __call__(self, data: Data) -> Data:
+        data.edge_index, _, _, data.x, data.pos, _ = self.forward(data.edge_index, data.edge_attr, data.x, data.pos)
+        return data
+
+
+class RepeatedMISSampling(MISSampling):
     def __init__(self, max_nodes=4096, pool_ratio=1., **kwargs):
         super(MISSampling, self).__init__(pool_size=1, stride=1, ordering=None, **kwargs)
-        
+
         self.max_nodes = max_nodes
         self.pool_ratio = pool_ratio
 
@@ -57,7 +63,3 @@ class MISSampling(MISSPool):
         self.pool_size = int(self.stride*self.pool_ratio)
 
         return mis
-
-    def __call__(self, data: Data) -> Data:
-        data.edge_index, data.x, data.pos, _ = self.forward(data.edge_index, data.edge_attr, data.x, data.pos)
-        return data
