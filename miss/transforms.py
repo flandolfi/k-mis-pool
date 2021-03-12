@@ -47,7 +47,7 @@ class Permute(object):
 
 class MISSampling(MISSPool):
     def __call__(self, data: Data) -> Data:
-        data.edge_index, _, _, data.x, data.pos, _ = self.forward(data.edge_index, data.edge_attr, data.x, data.pos)
+        data.edge_index, _, _, _, data.x, data.pos, _ = self.forward(data.edge_index, data.edge_attr, data.x, data.pos)
         return data
 
 

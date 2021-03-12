@@ -161,7 +161,7 @@ class MISSPool(MessagePassing):
         if batch is not None:
             batch = batch[mis]
         
-        return adj, p_mat, s_mat, *x, batch
+        return adj, p_mat, s_mat, mis, *x, batch
 
     def message_and_aggregate(self, adj_t: SparseTensor, x: Tensor) -> Tensor:  # noqa
         return adj_t.matmul(x, reduce=self.aggr)

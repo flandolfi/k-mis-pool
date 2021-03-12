@@ -126,7 +126,7 @@ class DGCNN(nn.Module):
             xs.append(x_exp)
 
             if i < len(self.conv) - 1:
-                adj, p_mat, _, x, _ = self.pool(edge_index, edge_weight, x)
+                adj, p_mat, _, _, x, _ = self.pool(edge_index, edge_weight, x)
                 p_mats.append(p_mat)
 
                 row, col, edge_weight = adj.coo()
@@ -171,7 +171,7 @@ class PointNet(torch.nn.Module):
 
         for sa in self.local_sa:
             x = sa(x, pos, edge_index, edge_weight if self.edge_weights else None)
-            adj, _, _, x, pos, batch = self.pool(edge_index, edge_weight, x, pos, batch=batch)
+            adj, _, _, _, x, pos, batch = self.pool(edge_index, edge_weight, x, pos, batch=batch)
 
             row, col, edge_weight = adj.coo()
             edge_index = torch.stack([row, col])
