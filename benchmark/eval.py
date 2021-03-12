@@ -118,7 +118,7 @@ def train(num_points: int = 1024,
     opts.update({
         'verbose': 1,
         'lr': 0.001,
-        'batch_size': 32,
+        'batch_size': 8,
         'max_epochs': 9999999999,
         'optimizer': getattr(torch.optim, optimizer),
         'optimizer__weight_decay': 0.0001,
