@@ -159,7 +159,13 @@ def test(params_path: str = 'params.pt',
          **net_kwargs):
     ds = ModelNet(dataset_path, '40', train=False,
                   pre_transform=T.NormalizeScale(),
-                  transform=T.SamplePoints(num=num_points))
+                  transform=T.Compose([
+                      T.SamplePoints(num=num_points),
+                      T.RandomTranslate(0.01),
+                      T.RandomRotate(15, axis=0),
+                      T.RandomRotate(15, axis=1),
+                      T.RandomRotate(15, axis=2)
+                  ]))
 
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update(net_kwargs)
