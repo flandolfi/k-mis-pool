@@ -14,7 +14,6 @@ from skorch import NeuralNetClassifier
 from skorch.callbacks import ProgressBar, Checkpoint, EpochScoring, LRScheduler
 from skorch.dataset import CVSplit
 
-from sklearn.metrics import accuracy_score, balanced_accuracy_score, jaccard_score
 from sklearn.utils import compute_class_weight
 
 from benchmark import models
@@ -89,7 +88,7 @@ DEFAULT_NET_PARAMS = {
 
 
 def train(num_points: int = 1024,
-          train_split: float = 0.1,
+          train_split: float = 0.2,
           model: str = 'PointNet',
           optimizer: str = 'Adam',
           weighted_loss: bool = False,
