@@ -100,7 +100,13 @@ def train(num_points: int = 1024,
           **net_kwargs):
     ds = ModelNet(dataset_path, '40', train=True,
                   pre_transform=T.NormalizeScale(),
-                  transform=T.SamplePoints(num=num_points))
+                  transform=T.Compose([
+                      T.SamplePoints(num=num_points),
+                      T.RandomTranslate(0.01),
+                      T.RandomRotate(15, axis=0),
+                      T.RandomRotate(15, axis=1),
+                      T.RandomRotate(15, axis=2)
+                  ]))
 
     weight = None
 
@@ -151,21 +157,13 @@ def train(num_points: int = 1024,
 
 
 def test(params_path: str = 'params.pt',
-         repetitions: int = 1,
-         aggregation: str = 'mean',
          num_points: int = 1024,
          model: str = 'PointNet',
          dataset_path: str = './dataset/ModelNet40/',
          **net_kwargs):
     ds = ModelNet(dataset_path, '40', train=False,
                   pre_transform=T.NormalizeScale(),
-                  transform=T.Compose([
-                      T.SamplePoints(num=num_points),
-                      T.RandomTranslate(0.01),
-                      T.RandomRotate(15, axis=0),
-                      T.RandomRotate(15, axis=1),
-                      T.RandomRotate(15, axis=2)
-                  ]))
+                  transform=T.SamplePoints(num=num_points))
 
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update(net_kwargs)
@@ -179,26 +177,7 @@ def test(params_path: str = 'params.pt',
     ).initialize()
 
     net.load_params(params_path)
-
-    sampled_ds = list(ds)
-    prob = np.stack([net.predict_proba(sampled_ds) for _ in range(repetitions)])
-
-    aggr = getattr(np, aggregation)
-    y_pred = aggr(prob, axis=0).argmax(1)
-    y_true = ds.data.y.numpy()
-
-    iou = jaccard_score(y_true, y_pred, average=None)
-
-    results = {
-        'balanced': balanced_accuracy_score(y_true, y_pred),
-        'overall': accuracy_score(y_true, y_pred),
-        'mIoU': iou.mean()
-    }
-
-    for i, j in enumerate(iou):
-        results[i] = j
-
-    return results
+    return net.score(ds, ds.data.y)
 
 
 if __name__ == "__main__":
