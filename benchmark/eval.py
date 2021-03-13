@@ -55,6 +55,7 @@ def _unpack_data_wrapper(func):
     return wrapper
 
 
+torch.multiprocessing.set_sharing_strategy('file_system')
 torch.manual_seed(42)
 np.random.seed(42)
 device = 'cpu'
