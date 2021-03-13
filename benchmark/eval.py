@@ -124,7 +124,26 @@ def train(num_points: int = 1024,
         'train_split': None if train_split <= 0 else CVSplit(cv=train_split, stratified=True, random_state=42),
         'criterion': torch.nn.CrossEntropyLoss,
         'criterion__weight': weight,
-        'callbacks': [('progress_bar', ProgressBar)],
+        'callbacks': [
+            ('progress_bar', ProgressBar),
+            ('train_acc', EpochScoring),
+            ('train_bal', EpochScoring),
+            ('checkpoint', Checkpoint),
+        ],
+        'callbacks__train_acc__scoring': 'accuracy',
+        'callbacks__train_acc__name': 'train_acc',
+        'callbacks__train_acc__on_train': True,
+        'callbacks__train_acc__lower_is_better': False,
+        'callbacks__train_bal__scoring': 'balanced_accuracy',
+        'callbacks__train_bal__name': 'train_bal',
+        'callbacks__train_bal__on_train': True,
+        'callbacks__train_bal__lower_is_better': False,
+        'callbacks__checkpoint__monitor': 'train_acc_best',
+        'callbacks__checkpoint__f_params': params_path,
+        'callbacks__checkpoint__f_optimizer': None,
+        'callbacks__checkpoint__f_criterion': None,
+        'callbacks__checkpoint__f_history': history_path,
+        'callbacks__checkpoint__f_pickle': None,
     })
     
     if cosine_annealing:
@@ -136,17 +155,9 @@ def train(num_points: int = 1024,
         })
     
     if train_split > 0:
-        opts['callbacks'].extend([ # noqa
-            ('valid_bal', EpochScoring),
-            ('checkpoint', Checkpoint),
-        ])
+        opts['callbacks'].append(('valid_bal', EpochScoring))
         opts.update({
             'callbacks__checkpoint__monitor': 'valid_acc_best',
-            'callbacks__checkpoint__f_params': params_path,
-            'callbacks__checkpoint__f_optimizer': None,
-            'callbacks__checkpoint__f_criterion': None,
-            'callbacks__checkpoint__f_history': history_path,
-            'callbacks__checkpoint__f_pickle': None,
             'callbacks__valid_bal__scoring': 'balanced_accuracy',
             'callbacks__valid_bal__name': 'valid_bal',
             'callbacks__valid_bal__on_train': False,
@@ -155,14 +166,11 @@ def train(num_points: int = 1024,
     
     opts.update(net_kwargs)
     
-    net = NeuralNetClassifier(
+    NeuralNetClassifier(
         module=getattr(models, model),
         module__dataset=ds,
         **opts
     ).fit(ds, ds.data.y)
-    
-    if train_split <= 0:
-        net.save_params(params_path)
 
 
 def test(params_path: str = 'params.pt',
