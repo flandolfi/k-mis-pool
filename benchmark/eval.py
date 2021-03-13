@@ -71,6 +71,8 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 
 DEFAULT_NET_PARAMS = {
+    'verbose': 1,
+    'batch_size': 8,
     'module__pool_size': 1,
     'module__ordering': 'random',
     'device': device,
@@ -102,8 +104,8 @@ def train(num_points: int = 1024,
                   transform=T.Compose([
                       T.SamplePoints(num=num_points),
                       T.RandomTranslate(0.01),
+                      T.RandomRotate(180, axis=1),
                       T.RandomRotate(15, axis=0),
-                      T.RandomRotate(15, axis=1),
                       T.RandomRotate(15, axis=2)
                   ]))
 
@@ -116,43 +118,51 @@ def train(num_points: int = 1024,
     
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update({
-        'verbose': 1,
         'lr': 0.001,
-        'batch_size': 8,
         'max_epochs': 9999999999,
         'optimizer': getattr(torch.optim, optimizer),
-        'optimizer__weight_decay': 0.0001,
-        'train_split': CVSplit(cv=train_split, stratified=True, random_state=42),
+        'train_split': None if train_split <= 0 else CVSplit(cv=train_split, stratified=True, random_state=42),
         'criterion': torch.nn.CrossEntropyLoss,
         'criterion__weight': weight,
-        'callbacks': [
-            ('progress_bar', ProgressBar),
-            ('valid_bal', EpochScoring),
-            ('lr_scheduler', LRScheduler),
-            ('checkpoint', Checkpoint),
-        ],
-        'callbacks__checkpoint__monitor': 'valid_acc_best',
-        'callbacks__checkpoint__f_params': params_path,
-        'callbacks__checkpoint__f_optimizer': None,
-        'callbacks__checkpoint__f_criterion': None,
-        'callbacks__checkpoint__f_history': history_path,
-        'callbacks__checkpoint__f_pickle': None,
-        'callbacks__lr_scheduler__policy': torch.optim.lr_scheduler.CosineAnnealingWarmRestarts,
-        'callbacks__lr_scheduler__T_0': 10,
-        'callbacks__lr_scheduler__T_mult': 2,
-        'callbacks__valid_bal__scoring': 'balanced_accuracy',
-        'callbacks__valid_bal__name': 'valid_bal',
-        'callbacks__valid_bal__on_train': False,
-        'callbacks__valid_bal__lower_is_better': False
+        'callbacks': [('progress_bar', ProgressBar)],
     })
-    opts.update(net_kwargs)
-    opts.setdefault('callbacks__lr_scheduler__eta_min', 0 if cosine_annealing else opts['lr'])
     
-    NeuralNetClassifier(
+    if cosine_annealing:
+        opts['callbacks'].append(('lr_scheduler', LRScheduler))  # noqa
+        opts.update({
+            'callbacks__lr_scheduler__policy': torch.optim.lr_scheduler.CosineAnnealingWarmRestarts,
+            'callbacks__lr_scheduler__T_0': 10,
+            'callbacks__lr_scheduler__T_mult': 2,
+        })
+    
+    if train_split > 0:
+        opts['callbacks'].extend([ # noqa
+            ('valid_bal', EpochScoring),
+            ('checkpoint', Checkpoint),
+        ])
+        opts.update({
+            'callbacks__checkpoint__monitor': 'valid_acc_best',
+            'callbacks__checkpoint__f_params': params_path,
+            'callbacks__checkpoint__f_optimizer': None,
+            'callbacks__checkpoint__f_criterion': None,
+            'callbacks__checkpoint__f_history': history_path,
+            'callbacks__checkpoint__f_pickle': None,
+            'callbacks__valid_bal__scoring': 'balanced_accuracy',
+            'callbacks__valid_bal__name': 'valid_bal',
+            'callbacks__valid_bal__on_train': False,
+            'callbacks__valid_bal__lower_is_better': False
+        })
+    
+    opts.update(net_kwargs)
+    
+    net = NeuralNetClassifier(
         module=getattr(models, model),
         module__dataset=ds,
         **opts
     ).fit(ds, ds.data.y)
+    
+    if train_split <= 0:
+        net.save_params(params_path)
 
 
 def test(params_path: str = 'params.pt',
