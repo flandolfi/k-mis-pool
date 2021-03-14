@@ -6,7 +6,6 @@ import numpy as np
 import torch
 
 from torch_geometric.data import DataLoader, Data, Dataset
-from torch_geometric.datasets import ModelNet
 from torch_geometric import transforms as T
 
 import skorch
@@ -17,6 +16,7 @@ from skorch.dataset import CVSplit
 from sklearn.utils import compute_class_weight
 
 from benchmark import models
+from benchmark.datasets import ModelNet40
 
 
 def _to_tensor_wrapper(func):
@@ -64,6 +64,11 @@ def random_transform(data):
     return data
 
 
+def pre_transform(data):
+    data.pos = data.pos[:1024]
+    return data
+
+
 torch.multiprocessing.set_sharing_strategy('file_system')
 torch.manual_seed(42)
 np.random.seed(42)
@@ -99,8 +104,7 @@ DEFAULT_NET_PARAMS = {
 }
 
 
-def train(num_points: int = 1024,
-          train_split: float = 0.2,
+def train(train_split: float = 0.2,
           model: str = 'PointNet',
           optimizer: str = 'Adam',
           weighted_loss: bool = False,
@@ -109,12 +113,12 @@ def train(num_points: int = 1024,
           params_path: str = 'params.pt',
           history_path: str = None,
           **net_kwargs):
-    ds = ModelNet(dataset_path, '40', train=True,
-                  pre_transform=T.SamplePoints(num=num_points),
-                  transform=random_transform)
+    ds = ModelNet40(dataset_path, train=True,
+                    pre_transform=pre_transform,
+                    transform=random_transform)
 
     weight = None
-
+    
     if weighted_loss:
         y = ds.data.y.numpy()
         weight = compute_class_weight('balanced', classes=np.unique(y), y=y)
@@ -178,12 +182,11 @@ def train(num_points: int = 1024,
 
 
 def test(params_path: str = 'params.pt',
-         num_points: int = 1024,
          model: str = 'PointNet',
          dataset_path: str = './dataset/ModelNet40_sampled/',
          **net_kwargs):
-    ds = ModelNet(dataset_path, '40', train=False,
-                  pre_transform=T.SamplePoints(num=num_points))
+    ds = ModelNet40(dataset_path, train=False,
+                    pre_transform=pre_transform)
 
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update(net_kwargs)
