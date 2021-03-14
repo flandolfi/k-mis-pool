@@ -110,10 +110,7 @@ def train(num_points: int = 1024,
           history_path: str = None,
           **net_kwargs):
     ds = ModelNet(dataset_path, '40', train=True,
-                  pre_transform=T.Compose([
-                      T.NormalizeScale(),
-                      T.SamplePoints(num=num_points)
-                  ]),
+                  pre_transform=T.SamplePoints(num=num_points),
                   transform=random_transform)
 
     weight = None
@@ -186,10 +183,7 @@ def test(params_path: str = 'params.pt',
          dataset_path: str = './dataset/ModelNet40_sampled/',
          **net_kwargs):
     ds = ModelNet(dataset_path, '40', train=False,
-                  pre_transform=T.Compose([
-                      T.NormalizeScale(),
-                      T.SamplePoints(num=num_points)
-                  ]))
+                  pre_transform=T.SamplePoints(num=num_points))
 
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update(net_kwargs)
