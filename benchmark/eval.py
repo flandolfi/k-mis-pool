@@ -55,6 +55,15 @@ def _unpack_data_wrapper(func):
     return wrapper
 
 
+def random_transform(data):
+    pos = data.pos
+    pos *= (5./6.)*torch.rand(1, 3, dtype=torch.float, device=pos.device) + 2./3.
+    pos += 0.4*torch.rand(1, 3, dtype=torch.float, device=pos.device) - 0.2
+    data.pos = pos
+    
+    return data
+
+
 torch.multiprocessing.set_sharing_strategy('file_system')
 torch.manual_seed(42)
 np.random.seed(42)
@@ -96,19 +105,16 @@ def train(num_points: int = 1024,
           optimizer: str = 'Adam',
           weighted_loss: bool = False,
           cosine_annealing: bool = False,
-          dataset_path: str = './dataset/ModelNet40/',
+          dataset_path: str = './dataset/ModelNet40_sampled/',
           params_path: str = 'params.pt',
           history_path: str = None,
           **net_kwargs):
     ds = ModelNet(dataset_path, '40', train=True,
-                  pre_transform=T.NormalizeScale(),
-                  transform=T.Compose([
-                      T.SamplePoints(num=num_points),
-                      T.RandomTranslate(0.01),
-                      T.RandomRotate(180, axis=1),
-                      T.RandomRotate(15, axis=0),
-                      T.RandomRotate(15, axis=2)
-                  ]))
+                  pre_transform=T.Compose([
+                      T.NormalizeScale(),
+                      T.SamplePoints(num=num_points)
+                  ]),
+                  transform=random_transform)
 
     weight = None
 
@@ -177,11 +183,13 @@ def train(num_points: int = 1024,
 def test(params_path: str = 'params.pt',
          num_points: int = 1024,
          model: str = 'PointNet',
-         dataset_path: str = './dataset/ModelNet40/',
+         dataset_path: str = './dataset/ModelNet40_sampled/',
          **net_kwargs):
     ds = ModelNet(dataset_path, '40', train=False,
-                  pre_transform=T.NormalizeScale(),
-                  transform=T.SamplePoints(num=num_points))
+                  pre_transform=T.Compose([
+                      T.NormalizeScale(),
+                      T.SamplePoints(num=num_points)
+                  ]))
 
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update(net_kwargs)
