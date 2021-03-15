@@ -154,7 +154,7 @@ class MISSPool(MessagePassing):
         size = self._maybe_size(batch, *xs)
         adj = self._get_adj(edge_index, edge_attr, size)
 
-        if self.training or self.ensemble <= 1:
+        if self.training or not self.ensemble:
             mis = self._get_mis(adj, *xs)
         elif self.ensemble == 'all':
             mis = torch.ones(adj.size(0), dtype=torch.bool, device=adj.device())
