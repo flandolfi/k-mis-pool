@@ -11,7 +11,7 @@ class MISSPool(MessagePassing):
     propagate_type = {'x': Tensor}
 
     def __init__(self, pool_size=1, stride=None, ordering='random', add_self_loops=False,
-                 normalize=True, aggr='add', weighted=True):
+                 normalize=True, aggr='add', weighted=True, ensemble=False):
         super(MISSPool, self).__init__(aggr=aggr)
 
         self.pool_size = pool_size
@@ -20,6 +20,7 @@ class MISSPool(MessagePassing):
         self.ordering: orderings.Ordering = self._get_ordering(ordering)
         self.normalize = normalize
         self.weighted = weighted
+        self.ensemble = ensemble
 
     @staticmethod
     def _get_ordering(ordering):
@@ -152,7 +153,17 @@ class MISSPool(MessagePassing):
                 *xs: OptTensor, batch: OptTensor = None) -> Tuple[Union[SparseTensor, OptTensor], ...]:
         size = self._maybe_size(batch, *xs)
         adj = self._get_adj(edge_index, edge_attr, size)
-        mis = self._get_mis(adj, *xs)
+
+        if self.training or self.ensemble <= 1:
+            mis = self._get_mis(adj, *xs)
+        elif self.ensemble == 'all':
+            mis = torch.ones(adj.size(0), dtype=torch.bool, device=adj.device())
+        else:
+            mis = torch.zeros(adj.size(0), dtype=torch.bool, device=adj.device())
+
+            for _ in range(self.test_iterations):
+                mis = mis | self._get_mis(adj, *xs)
+
         p_mat, s_mat = self.get_coarsening_matrices(adj, mis, self.pool_size, self.stride)
 
         x = self.pool(p_mat, *xs)
