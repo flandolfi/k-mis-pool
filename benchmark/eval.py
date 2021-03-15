@@ -6,7 +6,6 @@ import numpy as np
 import torch
 
 from torch_geometric.data import DataLoader, Data, Dataset
-from torch_geometric.datasets import ModelNet
 from torch_geometric import transforms as T
 
 import skorch
@@ -17,6 +16,7 @@ from skorch.dataset import CVSplit
 from sklearn.utils import compute_class_weight
 
 from benchmark import models
+from benchmark.datasets import ModelNet40
 
 
 def _to_tensor_wrapper(func):
@@ -55,6 +55,21 @@ def _unpack_data_wrapper(func):
     return wrapper
 
 
+def random_transform(data):
+    pos = data.pos
+    pos *= (5./6.)*torch.rand(1, 3, dtype=torch.float, device=pos.device) + 2./3.
+    pos += 0.4*torch.rand(1, 3, dtype=torch.float, device=pos.device) - 0.2
+    data.pos = pos
+    
+    return data
+
+
+def pre_transform(data):
+    data.pos = data.pos[:1024]
+    return data
+
+
+torch.multiprocessing.set_sharing_strategy('file_system')
 torch.manual_seed(42)
 np.random.seed(42)
 device = 'cpu'
@@ -71,6 +86,8 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 
 DEFAULT_NET_PARAMS = {
+    'verbose': 1,
+    'batch_size': 8,
     'module__pool_size': 1,
     'module__ordering': 'random',
     'device': device,
@@ -87,28 +104,21 @@ DEFAULT_NET_PARAMS = {
 }
 
 
-def train(num_points: int = 1024,
-          train_split: float = 0.2,
+def train(train_split: float = 0.2,
           model: str = 'PointNet',
           optimizer: str = 'Adam',
           weighted_loss: bool = False,
           cosine_annealing: bool = False,
-          dataset_path: str = './dataset/ModelNet40/',
+          dataset_path: str = './dataset/ModelNet40_sampled/',
           params_path: str = 'params.pt',
           history_path: str = None,
           **net_kwargs):
-    ds = ModelNet(dataset_path, '40', train=True,
-                  pre_transform=T.NormalizeScale(),
-                  transform=T.Compose([
-                      T.SamplePoints(num=num_points),
-                      T.RandomTranslate(0.01),
-                      T.RandomRotate(15, axis=0),
-                      T.RandomRotate(15, axis=1),
-                      T.RandomRotate(15, axis=2)
-                  ]))
+    ds = ModelNet40(dataset_path, train=True,
+                    pre_transform=pre_transform,
+                    transform=random_transform)
 
     weight = None
-
+    
     if weighted_loss:
         y = ds.data.y.numpy()
         weight = compute_class_weight('balanced', classes=np.unique(y), y=y)
@@ -116,37 +126,53 @@ def train(num_points: int = 1024,
     
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update({
-        'verbose': 1,
         'lr': 0.001,
-        'batch_size': 8,
         'max_epochs': 9999999999,
         'optimizer': getattr(torch.optim, optimizer),
-        'optimizer__weight_decay': 0.0001,
-        'train_split': CVSplit(cv=train_split, stratified=True, random_state=42),
+        'train_split': None if train_split <= 0 else CVSplit(cv=train_split, stratified=True, random_state=42),
         'criterion': torch.nn.CrossEntropyLoss,
         'criterion__weight': weight,
         'callbacks': [
             ('progress_bar', ProgressBar),
-            ('valid_bal', EpochScoring),
-            ('lr_scheduler', LRScheduler),
+            ('train_acc', EpochScoring),
+            ('train_bal', EpochScoring),
             ('checkpoint', Checkpoint),
         ],
-        'callbacks__checkpoint__monitor': 'valid_acc_best',
+        'callbacks__train_acc__scoring': 'accuracy',
+        'callbacks__train_acc__name': 'train_acc',
+        'callbacks__train_acc__on_train': True,
+        'callbacks__train_acc__lower_is_better': False,
+        'callbacks__train_bal__scoring': 'balanced_accuracy',
+        'callbacks__train_bal__name': 'train_bal',
+        'callbacks__train_bal__on_train': True,
+        'callbacks__train_bal__lower_is_better': False,
+        'callbacks__checkpoint__monitor': 'train_acc_best',
         'callbacks__checkpoint__f_params': params_path,
         'callbacks__checkpoint__f_optimizer': None,
         'callbacks__checkpoint__f_criterion': None,
         'callbacks__checkpoint__f_history': history_path,
         'callbacks__checkpoint__f_pickle': None,
-        'callbacks__lr_scheduler__policy': torch.optim.lr_scheduler.CosineAnnealingWarmRestarts,
-        'callbacks__lr_scheduler__T_0': 10,
-        'callbacks__lr_scheduler__T_mult': 2,
-        'callbacks__valid_bal__scoring': 'balanced_accuracy',
-        'callbacks__valid_bal__name': 'valid_bal',
-        'callbacks__valid_bal__on_train': False,
-        'callbacks__valid_bal__lower_is_better': False
     })
+    
+    if cosine_annealing:
+        opts['callbacks'].append(('lr_scheduler', LRScheduler))  # noqa
+        opts.update({
+            'callbacks__lr_scheduler__policy': torch.optim.lr_scheduler.CosineAnnealingWarmRestarts,
+            'callbacks__lr_scheduler__T_0': 10,
+            'callbacks__lr_scheduler__T_mult': 2,
+        })
+    
+    if train_split > 0:
+        opts['callbacks'].append(('valid_bal', EpochScoring))
+        opts.update({
+            'callbacks__checkpoint__monitor': 'valid_acc_best',
+            'callbacks__valid_bal__scoring': 'balanced_accuracy',
+            'callbacks__valid_bal__name': 'valid_bal',
+            'callbacks__valid_bal__on_train': False,
+            'callbacks__valid_bal__lower_is_better': False
+        })
+    
     opts.update(net_kwargs)
-    opts.setdefault('callbacks__lr_scheduler__eta_min', 0 if cosine_annealing else opts['lr'])
     
     NeuralNetClassifier(
         module=getattr(models, model),
@@ -156,13 +182,11 @@ def train(num_points: int = 1024,
 
 
 def test(params_path: str = 'params.pt',
-         num_points: int = 1024,
          model: str = 'PointNet',
-         dataset_path: str = './dataset/ModelNet40/',
+         dataset_path: str = './dataset/ModelNet40_sampled/',
          **net_kwargs):
-    ds = ModelNet(dataset_path, '40', train=False,
-                  pre_transform=T.NormalizeScale(),
-                  transform=T.SamplePoints(num=num_points))
+    ds = ModelNet40(dataset_path, train=False,
+                    pre_transform=pre_transform)
 
     opts = dict(DEFAULT_NET_PARAMS)
     opts.update(net_kwargs)

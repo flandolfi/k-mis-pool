@@ -160,11 +160,11 @@ class PointNet(torch.nn.Module):
         ])
         self.global_sa = MLP(256 + 3, 256, 512, 1024, negative_slope=0., norm=norm)
 
-        self.mlp = MLP(1024, 512, 256, dataset.num_classes, dropout=0.5, negative_slope=0., norm=norm)
+        self.mlp = MLP(1024, 512, 256, dataset.num_classes, dropout=0.5, bias=True, negative_slope=0., norm=norm)
 
     def forward(self, data):
         x, pos, batch, n, b = data.x, data.pos, data.batch, data.num_nodes, data.num_graphs
-        edge_index = radius_graph(pos, self.radius, batch, loop=True, max_num_neighbors=1024)
+        edge_index = radius_graph(pos, self.radius, batch, loop=True, max_num_neighbors=32)
         row, col = edge_index = to_undirected(edge_index, n)
 
         edge_weight = 1. / degree(row, n)[row]
