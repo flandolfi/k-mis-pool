@@ -128,3 +128,21 @@ def maximal_independent_sample(adj: SparseTensor, max_nodes: int) -> Tuple[Tenso
             r_bound = k
             
     return mis, r_bound
+
+
+@torch.jit.script
+def cluster_k_mis(adj: SparseTensor, k: int = 1, rank: OptTensor = None) -> Tuple[Tensor, Tensor]:
+    n, device = adj.size(0), adj.device()
+    row, col, val = adj.coo()
+    
+    if rank is None:
+        rank = torch.arange(n, dtype=torch.long, device=device)
+        
+    mis = maximal_k_independent_set(adj, k, rank)
+    min_rank = rank.clone()
+
+    for _ in range(k):
+        scatter_min(min_rank[row], col, out=min_rank)
+        
+    _, clusters = torch.unique(min_rank, return_inverse=True)
+    return clusters, mis
