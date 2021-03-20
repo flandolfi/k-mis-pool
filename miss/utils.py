@@ -139,7 +139,8 @@ def cluster_k_mis(adj: SparseTensor, k: int = 1, rank: OptTensor = None) -> Tupl
         rank = torch.arange(n, dtype=torch.long, device=device)
         
     mis = maximal_k_independent_set(adj, k, rank)
-    min_rank = rank.clone()
+    min_rank = torch.full((n,), fill_value=n, dtype=torch.long, device=device)
+    min_rank[mis] = rank[mis]
 
     for _ in range(k):
         scatter_min(min_rank[row], col, out=min_rank)
