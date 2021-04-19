@@ -1,2 +1,2 @@
 from kmis import orderings, utils, sample, reduce
-from kmis.reduce import KMISPool
+from kmis.reduce import KMISCoarsening

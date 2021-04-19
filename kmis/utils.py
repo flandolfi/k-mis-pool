@@ -18,10 +18,7 @@ def normalize_dim(mat: SparseTensor, dim: int = -1) -> SparseTensor:
     return mat * norm
 
 
-def sample_multinomial(prob: SparseTensor, normalize: bool = False) -> Tensor:
-    if normalize:
-        prob = normalize_dim(prob, -1)
-    
+def sample_multinomial(prob: SparseTensor) -> Tensor:
     n, device = prob.size(0), prob.device()
     row, col, p = prob.coo()
     p_cumsum = torch.cumsum(p, dim=0) - row.float()

@@ -1,33 +1,51 @@
 import torch
 
-from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.typing import Adj, Tensor, Tuple, OptTensor, Size, Union, Optional
 from torch_sparse import SparseTensor
 
 from kmis import orderings, sample, utils
 
 
-def get_coarsening_matrix(adj: SparseTensor, mis: Tensor, k: int) -> SparseTensor:
-    c_mat = adj.eye(adj.size(0), device=adj.device())[mis]
+@torch.jit.script
+def get_coarsening_matrix(adj: SparseTensor, k: int = 1, eps: float = 0.5,
+                          rank: OptTensor = None) -> Tuple[SparseTensor, Tensor]:
+    mis = sample.maximal_k_independent_set(adj, k, rank)
+    rw = utils.normalize_dim(adj)
+    
+    if eps > 0.:
+        diag = rw.get_diag() + eps
+        rw = rw.set_value(rw.storage.value() * (1 - eps))
+        rw = rw.set_diag(diag)
+    
+    c_mat = rw.eye(adj.size(0), device=adj.device())[:, mis]
     
     for _ in range(k):
-        c_mat = c_mat @ adj
+        c_mat = rw @ c_mat
     
-    return c_mat
+    return utils.normalize_dim(c_mat), mis
 
 
-class KMISPool(MessagePassing):
-    propagate_type = {'x': Tensor}
+@torch.jit.script
+def sample_partition_matrix(c_mat: SparseTensor) -> SparseTensor:
+    cluster = utils.sample_multinomial(c_mat)
+    n, s = c_mat.sparse_sizes()
+    device = c_mat.device()
+    return SparseTensor(row=torch.arange(n, dtype=torch.long, device=device),
+                        col=cluster,
+                        value=torch.ones_like(cluster, dtype=torch.float),
+                        sparse_sizes=(n, s), is_sorted=True)
 
-    def __init__(self, k=1, ordering='random', add_self_loops=False,
-                 normalize=True, aggr='add', weighted=True):
-        super(KMISPool, self).__init__(aggr=aggr)
+
+class KMISCoarsening(torch.nn.Module):
+    def __init__(self, k=1, ordering='random', eps=0.5,
+                 normalize=True, sample_partition=True):
+        super(KMISCoarsening, self).__init__()
 
         self.k = k
-        self.add_self_loops = add_self_loops
+        self.eps = eps
         self.ordering: orderings.Ordering = self._get_ordering(ordering)
         self.normalize = normalize
-        self.weighted = weighted
+        self.sample_partition = sample_partition
 
     @staticmethod
     def _get_ordering(ordering):
@@ -58,64 +76,21 @@ class KMISPool(MessagePassing):
 
         return getattr(orderings, cls_name)(**opts)
 
-    def pool(self, c_mat: SparseTensor, *xs: OptTensor) -> Tuple[OptTensor, ...]:
-        if not self.weighted:
-            c_mat = c_mat.set_value(torch.ones_like(c_mat.storage.value()), layout="coo")
-        elif self.normalize:
-            c_mat = utils.normalize_dim(c_mat, 0)
-
+    @staticmethod
+    def pool(p_inv: Union[Tensor, SparseTensor], *xs: OptTensor) -> Tuple[OptTensor, ...]:
         out = []
 
         for x in xs:
             if x is None:
                 out.append(None)
             else:
-                out.append(self.propagate(c_mat, x=x))
+                out.append(p_inv @ x)
                 
         return tuple(out)
-
-    def unpool(self, p_mat: SparseTensor, *xs: OptTensor) -> Tuple[OptTensor, ...]:
-        if not self.weighted:
-            p_mat = p_mat.set_value(torch.ones_like(p_mat.storage.value()), layout="coo")
-
-        out = []
-
-        for x in xs:
-            if x is None:
-                out.append(None)
-            else:
-                out.append(self.propagate(p_mat.t(), x=x))
-                
-        return tuple(out)
-
-    def coarsen(self, s_mat: SparseTensor, adj: SparseTensor) -> SparseTensor:
-        if self.normalize:
-            return (s_mat @ adj) @ utils.normalize_dim(s_mat, 0).t()
-
-        return (s_mat @ adj) @ s_mat.t()
-
-    def expand(self, s_mat: SparseTensor, adj: SparseTensor) -> SparseTensor:
-        if self.normalize:
-            return utils.normalize_dim(s_mat, 0).t() @ (adj @ s_mat)
-
-        return s_mat.t() @ (adj @ s_mat)
 
     @staticmethod
-    def get_coarsening_matrices(adj: SparseTensor, mis: Tensor, p: int, s: int) -> Tuple[SparseTensor, SparseTensor]:
-        if p > s:
-            return KMISPool.get_coarsening_matrices(adj, mis, s, p)[::-1]
-
-        p_mat = adj.eye(adj.size(0), device=adj.device())[mis]
-
-        for _ in range(p):
-            p_mat = p_mat @ adj
-
-        s_mat = p_mat.clone()
-
-        for _ in range(p, s):
-            s_mat = s_mat @ adj
-
-        return p_mat, s_mat
+    def coarsen(c_mat: SparseTensor, adj: SparseTensor) -> SparseTensor:
+        return (c_mat.t() @ adj) @ c_mat
 
     @staticmethod
     def _maybe_size(*xs: OptTensor) -> Optional[Size]:
@@ -126,54 +101,40 @@ class KMISPool(MessagePassing):
 
         return None
 
-    def _get_adj(self, edge_index: Adj, edge_attr: OptTensor = None, size: Size = None) -> Adj:
-        adj: Adj = edge_index
-
-        if isinstance(adj, Tensor):
-            adj = SparseTensor.from_edge_index(edge_index, edge_attr, size)
-
-        if self.add_self_loops:
-            adj = adj.fill_diag(1.)
-
-        if self.normalize:
-            adj = utils.normalize_dim(adj, -1)
-
-        return adj
-
-    def _get_mis(self, adj: Adj, *xs: OptTensor) -> Tensor:
+    def _get_rank(self, adj: Adj, *xs: OptTensor) -> OptTensor:
+        if self.ordering is None:
+            return None
+        
         x = None
 
         for x in xs:
             if x is not None:
                 break
 
-        perm = None if self.ordering is None else self.ordering(x, adj)
-        return sample.maximal_k_independent_set(adj, self.stride, perm)
+        return self.ordering(x, adj)
 
     def forward(self, edge_index: Adj, edge_attr: OptTensor = None,
                 *xs: OptTensor, batch: OptTensor = None) -> Tuple[Union[SparseTensor, OptTensor], ...]:
         size = self._maybe_size(batch, *xs)
-        adj = self._get_adj(edge_index, edge_attr, size)
+        adj = edge_index
 
-        if self.training or not self.ensemble:
-            mis = self._get_mis(adj, *xs)
-        elif self.ensemble == 'all':
-            mis = torch.ones(adj.size(0), dtype=torch.bool, device=adj.device())
+        if isinstance(adj, Tensor):
+            adj = SparseTensor.from_edge_index(edge_index, edge_attr, size)
+
+        rank = self._get_rank(adj, *xs)
+        c_mat, mis = get_coarsening_matrix(adj, self.k, self.eps, rank)
+        
+        if self.sample_partition:
+            c_mat = sample_partition_matrix(c_mat)
+            p_inv = utils.normalize_dim(c_mat.t())
         else:
-            mis = torch.zeros(adj.size(0), dtype=torch.bool, device=adj.device())
+            p_inv = c_mat.to_dense()
+            p_inv = torch.pinverse(p_inv)
 
-            for _ in range(self.test_iterations):
-                mis = mis | self._get_mis(adj, *xs)
-
-        p_mat, s_mat = self.get_coarsening_matrices(adj, mis, self.pool_size, self.stride)
-
-        x = self.pool(p_mat, *xs)
-        adj = self.coarsen(s_mat, adj)
+        adj = self.coarsen(c_mat, adj)
+        out = self.pool(p_inv, *xs)
         
         if batch is not None:
             batch = batch[mis]
         
-        return adj, p_mat, s_mat, mis, *x, batch
-
-    def message_and_aggregate(self, adj_t: SparseTensor, x: Tensor) -> Tensor:  # noqa
-        return adj_t.matmul(x, reduce=self.aggr)
+        return adj, c_mat, p_inv, mis, *out, batch
