@@ -5,7 +5,7 @@ from torch import Tensor
 from torch_geometric.utils import get_laplacian
 from torch_sparse import SparseTensor
 
-from miss.utils import get_ranking
+from kmis.utils import get_ranking
 
 
 class Ordering(ABC):

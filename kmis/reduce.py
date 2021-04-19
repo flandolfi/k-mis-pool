@@ -4,23 +4,30 @@ from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.typing import Adj, Tensor, Tuple, OptTensor, Size, Union, Optional
 from torch_sparse import SparseTensor
 
-from miss import orderings, utils
+from kmis import orderings, sample, utils
 
 
-class MISSPool(MessagePassing):
+def get_coarsening_matrix(adj: SparseTensor, mis: Tensor, k: int) -> SparseTensor:
+    c_mat = adj.eye(adj.size(0), device=adj.device())[mis]
+    
+    for _ in range(k):
+        c_mat = c_mat @ adj
+    
+    return c_mat
+
+
+class KMISPool(MessagePassing):
     propagate_type = {'x': Tensor}
 
-    def __init__(self, pool_size=1, stride=None, ordering='random', add_self_loops=False,
-                 normalize=True, aggr='add', weighted=True, ensemble=False):
-        super(MISSPool, self).__init__(aggr=aggr)
+    def __init__(self, k=1, ordering='random', add_self_loops=False,
+                 normalize=True, aggr='add', weighted=True):
+        super(KMISPool, self).__init__(aggr=aggr)
 
-        self.pool_size = pool_size
-        self.stride = pool_size if stride is None else stride
+        self.k = k
         self.add_self_loops = add_self_loops
         self.ordering: orderings.Ordering = self._get_ordering(ordering)
         self.normalize = normalize
         self.weighted = weighted
-        self.ensemble = ensemble
 
     @staticmethod
     def _get_ordering(ordering):
@@ -50,18 +57,12 @@ class MISSPool(MessagePassing):
             return orderings.Lambda(getattr(torch, tokens[-1]), **opts)
 
         return getattr(orderings, cls_name)(**opts)
-    
-    @staticmethod
-    def normalize_dim(mat: SparseTensor, dim: int = -1) -> SparseTensor:
-        norm = mat.sum(dim).unsqueeze(dim)
-        norm = torch.where(norm == 0, torch.ones_like(norm), 1. / norm)
-        return mat * norm
 
-    def pool(self, p_mat: SparseTensor, *xs: OptTensor) -> Tuple[OptTensor, ...]:
+    def pool(self, c_mat: SparseTensor, *xs: OptTensor) -> Tuple[OptTensor, ...]:
         if not self.weighted:
-            p_mat = p_mat.set_value(torch.ones_like(p_mat.storage.value()), layout="coo")
+            c_mat = c_mat.set_value(torch.ones_like(c_mat.storage.value()), layout="coo")
         elif self.normalize:
-            p_mat = self.normalize_dim(p_mat, 0)
+            c_mat = utils.normalize_dim(c_mat, 0)
 
         out = []
 
@@ -69,7 +70,7 @@ class MISSPool(MessagePassing):
             if x is None:
                 out.append(None)
             else:
-                out.append(self.propagate(p_mat, x=x))
+                out.append(self.propagate(c_mat, x=x))
                 
         return tuple(out)
 
@@ -89,20 +90,20 @@ class MISSPool(MessagePassing):
 
     def coarsen(self, s_mat: SparseTensor, adj: SparseTensor) -> SparseTensor:
         if self.normalize:
-            return (s_mat @ adj) @ self.normalize_dim(s_mat, 0).t()
+            return (s_mat @ adj) @ utils.normalize_dim(s_mat, 0).t()
 
         return (s_mat @ adj) @ s_mat.t()
 
     def expand(self, s_mat: SparseTensor, adj: SparseTensor) -> SparseTensor:
         if self.normalize:
-            return self.normalize_dim(s_mat, 0).t() @ (adj @ s_mat)
+            return utils.normalize_dim(s_mat, 0).t() @ (adj @ s_mat)
 
         return s_mat.t() @ (adj @ s_mat)
 
     @staticmethod
     def get_coarsening_matrices(adj: SparseTensor, mis: Tensor, p: int, s: int) -> Tuple[SparseTensor, SparseTensor]:
         if p > s:
-            return MISSPool.get_coarsening_matrices(adj, mis, s, p)[::-1]
+            return KMISPool.get_coarsening_matrices(adj, mis, s, p)[::-1]
 
         p_mat = adj.eye(adj.size(0), device=adj.device())[mis]
 
@@ -135,7 +136,7 @@ class MISSPool(MessagePassing):
             adj = adj.fill_diag(1.)
 
         if self.normalize:
-            adj = self.normalize_dim(adj, -1)
+            adj = utils.normalize_dim(adj, -1)
 
         return adj
 
@@ -147,7 +148,7 @@ class MISSPool(MessagePassing):
                 break
 
         perm = None if self.ordering is None else self.ordering(x, adj)
-        return utils.maximal_k_independent_set(adj, self.stride, perm)
+        return sample.maximal_k_independent_set(adj, self.stride, perm)
 
     def forward(self, edge_index: Adj, edge_attr: OptTensor = None,
                 *xs: OptTensor, batch: OptTensor = None) -> Tuple[Union[SparseTensor, OptTensor], ...]:
