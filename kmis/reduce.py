@@ -1,20 +1,20 @@
 import torch
 
-from torch_geometric.typing import Adj, Tensor, Tuple, OptTensor, Size, Union, Optional
+from torch_geometric.typing import Adj, Tensor, Tuple, OptTensor, Size, Union, Optional, OptPairTensor
 from torch_sparse import SparseTensor
 
 from kmis import orderings, sample, utils
 
 
-@torch.jit.script
 def get_coarsening_matrix(adj: SparseTensor, k: int = 1, eps: float = 0.5,
                           rank: OptTensor = None) -> Tuple[SparseTensor, Tensor]:
     mis = sample.maximal_k_independent_set(adj, k, rank)
     rw = utils.normalize_dim(adj)
     
     if eps > 0.:
+        val = (1 - eps) * rw.storage.value()
+        rw = rw.set_value(val, layout="coo")
         diag = rw.get_diag() + eps
-        rw = rw.set_value(rw.storage.value() * (1 - eps))
         rw = rw.set_diag(diag)
     
     c_mat = rw.eye(adj.size(0), device=adj.device())[:, mis]
@@ -25,7 +25,6 @@ def get_coarsening_matrix(adj: SparseTensor, k: int = 1, eps: float = 0.5,
     return utils.normalize_dim(c_mat), mis
 
 
-@torch.jit.script
 def sample_partition_matrix(c_mat: SparseTensor) -> SparseTensor:
     cluster = utils.sample_multinomial(c_mat)
     n, s = c_mat.sparse_sizes()
@@ -37,18 +36,15 @@ def sample_partition_matrix(c_mat: SparseTensor) -> SparseTensor:
 
 
 class KMISCoarsening(torch.nn.Module):
-    def __init__(self, k=1, ordering='random', eps=0.5,
-                 normalize=True, sample_partition=True):
+    def __init__(self, k=1, ordering='random', eps=0.5, sample_partition=True):
         super(KMISCoarsening, self).__init__()
 
         self.k = k
         self.eps = eps
         self.ordering: orderings.Ordering = self._get_ordering(ordering)
-        self.normalize = normalize
         self.sample_partition = sample_partition
 
-    @staticmethod
-    def _get_ordering(ordering):
+    def _get_ordering(self, ordering):
         if ordering is None:
             return None
 
@@ -65,9 +61,8 @@ class KMISCoarsening(torch.nn.Module):
             opts['descending'] = tokens[0] == 'max'
             tokens = tokens[1:]
 
-        if tokens[-1] == 'paths':
-            opts['k'] = int(tokens[0])
-            tokens[0] = 'k'
+        if tokens[-1] in {'paths', 'curvature'}:
+            opts['k'] = self.k
 
         cls_name = ''.join(t.title() for t in tokens)
 
@@ -101,29 +96,17 @@ class KMISCoarsening(torch.nn.Module):
 
         return None
 
-    def _get_rank(self, adj: Adj, *xs: OptTensor) -> OptTensor:
+    def _get_rank(self, x: OptTensor, adj: Adj) -> OptTensor:
         if self.ordering is None:
             return None
-        
-        x = None
-
-        for x in xs:
-            if x is not None:
-                break
 
         return self.ordering(x, adj)
 
-    def forward(self, edge_index: Adj, edge_attr: OptTensor = None,
-                *xs: OptTensor, batch: OptTensor = None) -> Tuple[Union[SparseTensor, OptTensor], ...]:
-        size = self._maybe_size(batch, *xs)
-        adj = edge_index
-
-        if isinstance(adj, Tensor):
-            adj = SparseTensor.from_edge_index(edge_index, edge_attr, size)
-
-        rank = self._get_rank(adj, *xs)
+    def get_coarsening_matrices(self, adj: SparseTensor, x: OptTensor = None) \
+            -> Tuple[SparseTensor, Union[Tensor, SparseTensor], Tensor]:
+        rank = self._get_rank(x, adj)
         c_mat, mis = get_coarsening_matrix(adj, self.k, self.eps, rank)
-        
+
         if self.sample_partition:
             c_mat = sample_partition_matrix(c_mat)
             p_inv = utils.normalize_dim(c_mat.t())
@@ -131,10 +114,32 @@ class KMISCoarsening(torch.nn.Module):
             p_inv = c_mat.to_dense()
             p_inv = torch.pinverse(p_inv)
 
+        return c_mat, p_inv, mis
+
+    def forward(self, x: Union[OptTensor, OptPairTensor],
+                edge_index: Adj, edge_attr: OptTensor = None,
+                batch: OptTensor = None) -> Tuple[Union[OptTensor, OptPairTensor],
+                                                  SparseTensor, OptTensor,
+                                                  Tensor, SparseTensor,
+                                                  Union[Tensor, SparseTensor]]:
+        if not isinstance(x, tuple):
+            x: Tuple[Tensor] = (x,)
+
+        size = self._maybe_size(batch, *x)
+        adj = edge_index
+
+        if isinstance(adj, Tensor):
+            adj = SparseTensor.from_edge_index(edge_index, edge_attr, size)
+
+        c_mat, p_inv, mis = self.get_coarsening_matrices(adj, x[0])
+
         adj = self.coarsen(c_mat, adj)
-        out = self.pool(p_inv, *xs)
+        out = self.pool(p_inv, *x)
+
+        if len(out) == 1:
+            out = out[0]
         
         if batch is not None:
             batch = batch[mis]
         
-        return adj, c_mat, p_inv, mis, *out, batch
+        return out, adj, batch, mis, c_mat, p_inv
