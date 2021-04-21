@@ -11,10 +11,13 @@ torch-geometric
 networkx
 matplotlib
 numpy
+scipy
 pandas
 scikit-learn
 skorch
 tqdm
 fire
+tabulate
 numpydoc
 pygsp
+git+https://github.com/loukasa/graph-coarsening.git
