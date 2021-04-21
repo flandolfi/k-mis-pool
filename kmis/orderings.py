@@ -48,16 +48,22 @@ class KPaths(Ordering):
 
 
 class Curvature(Ordering):
-    def __init__(self, descending=True, normalization=None):
+    def __init__(self, descending=True, normalization=None, k=1):
         super(Curvature, self).__init__(descending)
         self.normalization = normalization
+        self.k = k
 
     def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
         row, col, val = adj.coo()
         lap_idx, lap_val = get_laplacian(torch.stack((row, col)), val,
                                          self.normalization, num_nodes=adj.size(0))
         lap = SparseTensor.from_edge_index(lap_idx, lap_val, adj.sparse_sizes())
-        return 0.5*torch.norm(lap @ x, p=2, dim=-1)
+        H = x
+
+        for _ in range(self.k):
+            H = lap @ H
+
+        return 0.5*torch.norm(H, p=2, dim=-1)
 
 
 class Lambda(Ordering):
