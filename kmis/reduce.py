@@ -2,6 +2,7 @@ import torch
 
 from torch_geometric.typing import Adj, Tensor, Tuple, OptTensor, Size, Union, Optional, OptPairTensor
 from torch_sparse import SparseTensor
+from torch_scatter import scatter_min
 
 from kmis import orderings, sample, utils
 
@@ -26,13 +27,32 @@ def get_coarsening_matrix(adj: SparseTensor, k: int = 1, eps: float = 0.5,
 
 
 def sample_partition_matrix(c_mat: SparseTensor) -> SparseTensor:
-    cluster = utils.sample_multinomial(c_mat)
+    cluster = sample.sample_multinomial(c_mat)
     n, s = c_mat.sparse_sizes()
     device = c_mat.device()
     return SparseTensor(row=torch.arange(n, dtype=torch.long, device=device),
                         col=cluster,
                         value=torch.ones_like(cluster, dtype=torch.float),
                         sparse_sizes=(n, s), is_sorted=True)
+
+
+@torch.jit.script
+def cluster_k_mis(adj: SparseTensor, k: int = 1, rank: OptTensor = None) -> Tuple[Tensor, Tensor]:
+    n, device = adj.size(0), adj.device()
+    row, col, val = adj.coo()
+
+    if rank is None:
+        rank = torch.arange(n, dtype=torch.long, device=device)
+
+    mis = sample.maximal_k_independent_set(adj, k, rank)
+    min_rank = torch.full((n,), fill_value=n, dtype=torch.long, device=device)
+    min_rank[mis] = rank[mis]
+
+    for _ in range(k):
+        scatter_min(min_rank[row], col, out=min_rank)
+
+    _, clusters = torch.unique(min_rank, return_inverse=True)
+    return clusters, mis
 
 
 class KMISCoarsening(torch.nn.Module):

@@ -1,5 +1,5 @@
 import torch
-from torch_geometric.typing import OptTensor, Tensor, Tuple
+from torch_geometric.typing import OptTensor, Tensor
 from torch_sparse import SparseTensor
 from torch_scatter import scatter_min, scatter_max
 
@@ -39,19 +39,13 @@ def maximal_independent_set(adj: SparseTensor, rank: OptTensor = None) -> Tensor
 
 
 @torch.jit.script
-def cluster_k_mis(adj: SparseTensor, k: int = 1, rank: OptTensor = None) -> Tuple[Tensor, Tensor]:
-    n, device = adj.size(0), adj.device()
-    row, col, val = adj.coo()
-    
-    if rank is None:
-        rank = torch.arange(n, dtype=torch.long, device=device)
-    
-    mis = maximal_k_independent_set(adj, k, rank)
-    min_rank = torch.full((n,), fill_value=n, dtype=torch.long, device=device)
-    min_rank[mis] = rank[mis]
-    
-    for _ in range(k):
-        scatter_min(min_rank[row], col, out=min_rank)
-    
-    _, clusters = torch.unique(min_rank, return_inverse=True)
-    return clusters, mis
+def sample_multinomial(prob: SparseTensor) -> Tensor:
+    n, device = prob.size(0), prob.device()
+    row, col, p = prob.coo()
+    assert p is not None
+
+    p_cumsum = torch.cumsum(p, dim=0) - row.float()
+    sample = torch.rand(n, dtype=torch.float, device=device)
+
+    mask = sample[row] < p_cumsum
+    return scatter_min(col[mask], row[mask], dim_size=n)[0]
