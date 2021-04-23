@@ -2,10 +2,9 @@ from abc import ABC, abstractmethod
 
 import torch
 from torch import Tensor
-from torch_geometric.utils import get_laplacian
 from torch_sparse import SparseTensor
 
-from kmis.utils import get_ranking
+from kmis.utils import get_ranking, get_laplacian_matrix, normalize_dim
 
 
 class Ordering(ABC):
@@ -47,6 +46,22 @@ class KPaths(Ordering):
         return k_paths.view(-1)
 
 
+class RandomWalk(Ordering):
+    def __init__(self, k=1, descending=True):
+        super(RandomWalk, self).__init__(descending)
+        self.k = k
+
+    def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
+        n = adj.size(1)
+        p = torch.ones((n, 1), dtype=torch.float, device=adj.device())/n
+        rw = normalize_dim(adj).t()
+
+        for _ in range(self.k):
+            p = rw @ p 
+
+        return p.view(-1)
+
+
 class Curvature(Ordering):
     def __init__(self, descending=True, normalization=None, k=1):
         super(Curvature, self).__init__(descending)
@@ -54,10 +69,7 @@ class Curvature(Ordering):
         self.k = k
 
     def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
-        row, col, val = adj.coo()
-        lap_idx, lap_val = get_laplacian(torch.stack((row, col)), val,
-                                         self.normalization, num_nodes=adj.size(0))
-        lap = SparseTensor.from_edge_index(lap_idx, lap_val, adj.sparse_sizes())
+        lap = get_laplacian_matrix(adj, self.normalization)
         H = x
 
         for _ in range(self.k):
