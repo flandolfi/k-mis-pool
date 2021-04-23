@@ -81,7 +81,7 @@ class KMISCoarsening(torch.nn.Module):
             opts['descending'] = tokens[0] == 'max'
             tokens = tokens[1:]
 
-        if tokens[-1] in {'paths', 'curvature'}:
+        if tokens[-1] in {'paths', 'curvature', 'walk'}:
             opts['k'] = self.k
 
         cls_name = ''.join(t.title() for t in tokens)
@@ -104,8 +104,9 @@ class KMISCoarsening(torch.nn.Module):
         return tuple(out)
 
     @staticmethod
-    def coarsen(c_mat: SparseTensor, adj: SparseTensor) -> SparseTensor:
-        return (c_mat.t() @ adj) @ c_mat
+    def coarsen(c_mat: Union[Tensor, SparseTensor], adj: SparseTensor) \
+            -> Union[Tensor, SparseTensor]:
+        return c_mat.t() @ (adj @ c_mat)
 
     @staticmethod
     def _maybe_size(*xs: OptTensor) -> Optional[Size]:
