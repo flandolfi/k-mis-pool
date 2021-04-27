@@ -80,10 +80,10 @@ def spectrum_approximation(num_eigenvalues: int = 10, max_k: int = 3,
             k_mis = reduce.KMISCoarsening(k=k, **kwargs)
             c_mat, p_inv, mis = k_mis.get_coarsening_matrices(adj, data.pos)
 
-            c_mat = utils.normalize_dim(c_mat, 0)
-            c_mat = c_mat.set_value(torch.sqrt(c_mat.storage.value()), layout="coo")
+            c_norm = utils.normalize_dim(c_mat, 0)
+            c_norm = c_norm.set_value(torch.sqrt(c_norm.storage.value()), layout="coo")
 
-            mat_redux = k_mis.coarsen(c_mat, mat)
+            mat_redux = k_mis.coarsen(c_norm, mat)
             nc = mat_redux.size(0)
             mc = (mat_redux.nnz() - nc)//2
 
@@ -110,15 +110,6 @@ def spectrum_approximation(num_eigenvalues: int = 10, max_k: int = 3,
                 'r': 1 - nc/n,
                 'eig_err': eig_err,
             }
-
-            if matrix == 'lap':
-                S = utils.get_incidence_matrix(adj).t()
-                l_inv = l ** -0.5
-                l_inv[0] = 0.
-                M = S @ c_mat.fill_value(1.) @ p_inv @ U @ torch.diag(l_inv)
-                ss_err = [torch.abs(torch.linalg.norm(M[:, :i], ord=2) - 1) for i in range(2, num_eigenvalues + 1)]
-                ss_err = sum(ss_err)/(len(ss_err) + 1)
-                metrics['ss_err'] = ss_err
 
             results.append(metrics)
 
