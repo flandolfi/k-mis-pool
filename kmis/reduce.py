@@ -103,9 +103,27 @@ class KMISCoarsening(torch.nn.Module):
                 
         return tuple(out)
 
-    @staticmethod
-    def coarsen(c_mat: Union[Tensor, SparseTensor], adj: SparseTensor) -> Union[Tensor, SparseTensor]:
-        return c_mat.t() @ (adj @ c_mat)
+    def coarsen(self, c_mat: Union[Tensor, SparseTensor], adj: SparseTensor) -> Union[Tensor, SparseTensor]:
+        out = c_mat.t() @ (adj @ c_mat)
+        
+        if self.sample_partition:
+            return out
+
+        diag = adj.get_diag()
+        
+        if torch.all(diag == 0.):
+            return out
+        
+        n, s, device = adj.size(0), out.size(0), adj.device()
+        sigma = c_mat.t() @ (SparseTensor.eye(n, device=device).set_diag(-diag) @ c_mat)
+        sigma_diag = c_mat.t() @ diag.unsqueeze(-1)
+        sigma_diag = SparseTensor.eye(s, device=device).set_diag(sigma_diag.squeeze(-1))
+        
+        rows, cols, values = tuple(zip(out.coo(), sigma.coo(), sigma_diag.coo()))
+        return SparseTensor(row=torch.cat(rows),
+                            col=torch.cat(cols),
+                            value=torch.cat(values),
+                            sparse_sizes=(s, s)).coalesce('sum')
 
     @staticmethod
     def _maybe_size(*xs: OptTensor) -> Optional[Size]:
@@ -139,7 +157,7 @@ class KMISCoarsening(torch.nn.Module):
                 batch: OptTensor = None) -> Tuple[Union[OptTensor, OptPairTensor], SparseTensor,
                                                   OptTensor, Tensor, SparseTensor, SparseTensor]:
         if not isinstance(x, tuple):
-            x: Tuple[Tensor] = (x,)
+            x: Tuple[OptTensor] = (x,)
 
         size = self._maybe_size(batch, *x)
         adj = edge_index
