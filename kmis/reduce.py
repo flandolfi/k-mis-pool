@@ -56,13 +56,25 @@ def cluster_k_mis(adj: SparseTensor, k: int = 1, rank: OptTensor = None) -> Tupl
 
 
 class KMISCoarsening(torch.nn.Module):
-    def __init__(self, k=1, ordering='random', eps=0.5, sample_partition=True):
+    def __init__(self, k=1, ordering='random', eps=0.5, sample_partition='on_train'):
         super(KMISCoarsening, self).__init__()
 
         self.k = k
         self.eps = eps
         self.ordering: orderings.Ordering = self._get_ordering(ordering)
-        self.sample_partition = sample_partition
+        self._sample_on_train = sample_partition in {True, 'on_train'}
+        self._sample_on_valid = sample_partition is True
+
+    @property
+    def sample_partition(self):
+        if self.training:
+            return self._sample_on_train
+        return self._sample_on_valid
+
+    @sample_partition.setter
+    def sample_partition(self, sample_partition):
+        self._sample_on_train = sample_partition in {True, 'on_train'}
+        self._sample_on_valid = sample_partition is True
 
     def _get_ordering(self, ordering):
         if ordering is None:
@@ -105,20 +117,20 @@ class KMISCoarsening(torch.nn.Module):
 
     def coarsen(self, c_mat: Union[Tensor, SparseTensor], adj: SparseTensor) -> Union[Tensor, SparseTensor]:
         out = c_mat.t() @ (adj @ c_mat)
-        
-        if self.sample_partition:
+
+        if self.sample_partition or not self._sample_on_train:
             return out
 
         diag = adj.get_diag()
-        
+
         if torch.all(diag == 0.):
             return out
-        
+
         n, s, device = adj.size(0), out.size(0), adj.device()
         sigma = c_mat.t() @ (SparseTensor.eye(n, device=device).set_diag(-diag) @ c_mat)
         sigma_diag = c_mat.t() @ diag.unsqueeze(-1)
         sigma_diag = SparseTensor.eye(s, device=device).set_diag(sigma_diag.squeeze(-1))
-        
+
         rows, cols, values = tuple(zip(out.coo(), sigma.coo(), sigma_diag.coo()))
         return SparseTensor(row=torch.cat(rows),
                             col=torch.cat(cols),
