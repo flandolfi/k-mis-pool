@@ -43,7 +43,6 @@ def sample(graph: str = "airfoil", matrix: str = "lift", iterations: int = 10000
 
     m_approx = torch.zeros_like(target)
     p_bar = tqdm(list(range(1, iterations + 1)), leave=True)
-    mask = target != 0
     k_mis.sample_partition = True
     i = 1
 
@@ -62,10 +61,10 @@ def sample(graph: str = "airfoil", matrix: str = "lift", iterations: int = 10000
             else:
                 m_approx += k_mis.coarsen(p_mat, lap).to_dense()  # noqa
 
-            p_bar.set_postfix(mae=torch.abs(target - m_approx/i)[mask].mean().item())
+            p_bar.set_postfix(mae=torch.abs(target - m_approx/i).mean().item())
     except KeyboardInterrupt:
         pass
 
-    print('Target: \n%s' % target[mask].cpu().numpy())
-    print('Approx: \n%s' % (m_approx/i)[mask].cpu().numpy())
-    print('Error: \n%s' % (target - m_approx/i)[mask].cpu().numpy())
+    print('Target: \n%s' % target.cpu().numpy())
+    print('Approx: \n%s' % (m_approx/i).cpu().numpy())
+    print('Error: \n%s' % (target - m_approx/i).cpu().numpy())
