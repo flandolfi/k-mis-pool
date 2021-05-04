@@ -78,6 +78,23 @@ class Curvature(Ordering):
         return 0.5*torch.norm(H, p=2, dim=-1)
 
 
+class LocalVariation(Ordering):
+    def __init__(self, descending=True, normalization=None, k=1):
+        super(LocalVariation, self).__init__(descending)
+        self.normalization = normalization
+        self.k = k
+
+    def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
+        lap = get_laplacian_matrix(adj, self.normalization)
+        H = x
+
+        for _ in range(self.k):
+            H = lap @ H
+        
+        norm = torch.norm(x, p=2, dim=0, keepdim=True)
+        return torch.norm((x - H)/norm, p=2, dim=-1)
+
+
 class Lambda(Ordering):
     def __init__(self, function, dim=-1, descending=True, **kwargs):
         super(Lambda, self).__init__(descending)
