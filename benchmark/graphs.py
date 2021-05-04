@@ -1,3 +1,5 @@
+import os.path as osp
+
 import torch
 
 from torch_geometric.data import Data
@@ -9,10 +11,20 @@ from pygsp import graphs
 GRAPH_NAMES = {"airfoil", "bunny", "minnesota", "yeast"}
 
 
-def get_graph(name: str, **kwargs):
+def get_graph(name: str, data_dir='./data/', **kwargs):
     if name not in GRAPH_NAMES:
         name = ''.join(s.title() for s in name.split('-'))
         return getattr(graphs, name)(**kwargs)
+    
+    if name == 'yeast':
+        path = osp.join(data_dir, 'yeast.pt')
+
+        if osp.exists(path):
+            return torch.load(path)
+
+        G = graph_lib.real(-1, name, **kwargs)
+        torch.save(G, path)
+        return G        
 
     return graph_lib.real(-1, name, **kwargs)
 
