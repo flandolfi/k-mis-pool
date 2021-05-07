@@ -31,7 +31,7 @@ class MLP(nn.Sequential):
 class GNN(nn.Module):
     def __init__(self, dataset: Dataset, gnn="GCNConv",
                  hidden=146, num_layers=4, blocks=1,
-                 hidden_factor=1, readout=False,
+                 node_level=False, readout=False,
                  k=1, ordering='random', eps=0.5,
                  sample_partition='on_train',
                  **gnn_kwargs):
@@ -48,8 +48,8 @@ class GNN(nn.Module):
                                    sample_partition=sample_partition)
         self.ordering = self.pool.ordering
         self.pool.ordering = None
-        self.hidden_factor = hidden_factor
         self.readout = readout
+        self.node_level = node_level
 
         if isinstance(gnn, str):
             gnn = getattr(conv, gnn)
@@ -81,9 +81,6 @@ class GNN(nn.Module):
             if readout or b == blocks - 1:
                 out_dim += hidden
 
-            if b < blocks - 1:
-                hidden *= hidden_factor
-
         self.lin_out = nn.Sequential(
             nn.ReLU(),
             MLP(out_dim, hidden // 2, hidden // 4, dataset.num_classes)
@@ -92,33 +89,49 @@ class GNN(nn.Module):
     def forward(self, data):
         x, pos, batch, n, b = data.x, data.pos, data.batch, data.num_nodes, data.num_graphs
         edge_index, edge_attr = data.edge_index, data.edge_attr
-        adj = SparseTensor.from_edge_index(edge_index, edge_attr, sparse_sizes=(n, n))
+
+        if edge_attr is None:
+            edge_attr = torch.ones_like(edge_index[0], dtype=torch.float)
 
         if pos is not None:
             x = torch.cat([x, pos], dim=-1)
 
+        adj = SparseTensor.from_edge_index(edge_index, edge_attr, sparse_sizes=(n, n))
+
         rank = self.ordering(x, adj)
         self.pool.ordering = lambda *args, **kwargs: rank
 
-        x = self.lin_in(x)
         xs = []
+        l_mats = []
 
-        x = self.in_block(x, edge_index, edge_attr)
+        x = self.lin_in(x)
+        out = x = self.in_block(x, edge_index, edge_attr)
 
         for i, block in enumerate(self.blocks):
             if self.readout:
-                xs.append(glob.global_mean_pool(x, batch, b))
+                if self.node_level:
+                    xs.append(out)
+                else:
+                    xs.append(glob.global_mean_pool(out, batch, b))
 
             x, edge_index, batch, mis, c_mat, l_mat = self.pool(x, edge_index, edge_attr, batch)
             _, rank = torch.unique(rank[mis], sorted=True, return_inverse=True)
 
             row, col, edge_attr = edge_index.coo()
             edge_index = torch.stack([row, col])
+            out = x = block(x, edge_index, edge_attr)
 
-            x = x.repeat(1, self.hidden_factor)
-            x = block(x, edge_index, edge_attr)
+            if self.node_level:
+                l_mats.append(l_mat.t())
 
-        xs.append(glob.global_mean_pool(x, batch, b))
+                for m in l_mats[::-1]:
+                    out = m @ out
+
+        if self.node_level:
+            xs.append(out)
+        else:
+            xs.append(glob.global_mean_pool(out, batch, b))
+
         out = torch.cat(xs, dim=-1)
         out = self.lin_out(out)
 

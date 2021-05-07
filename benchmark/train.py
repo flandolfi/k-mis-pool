@@ -9,7 +9,6 @@ from torch_geometric.datasets import GNNBenchmarkDataset
 
 from skorch import NeuralNetClassifier
 from skorch.callbacks import LRScheduler, ProgressBar, Checkpoint, EpochScoring
-from skorch.dataset import Dataset
 from skorch.helper import predefined_split
 
 from benchmark import utils
@@ -107,6 +106,7 @@ def train(model: str = 'GNN',
     opts = dict(DEFAULT_NET_PARAMS)
     logging.basicConfig(format='%(levelname)s: %(message)s', level=logging_level)
 
+    dataset = dataset.upper()
     logging.info(f'Loading {dataset} Dataset')
     train_dataset = GNNBenchmarkDataset(root=root, name=dataset, split='train')
     valid_dataset = GNNBenchmarkDataset(root=root, name=dataset, split='val')
@@ -114,10 +114,11 @@ def train(model: str = 'GNN',
     opts.update({
         'module': getattr(models, model),
         'module__dataset': train_dataset,
+        'module__node_level': dataset in {'CLUSTER', 'PATTERN'},
         'lr': lr,
         'batch_size': batch_size,
         'optimizer': getattr(torch.optim, optimizer),
-        'train_split': predefined_split(Dataset(valid_dataset, y=valid_dataset.data.y)),
+        'train_split': predefined_split(valid_dataset),
         'criterion': torch.nn.CrossEntropyLoss,
         'iterator_train__num_workers': num_workers,
         'iterator_valid__num_workers': num_workers,
@@ -125,6 +126,7 @@ def train(model: str = 'GNN',
         'iterator_train__drop_last': drop_last,
         'callbacks__checkpoint__f_params': save_params,
         'callbacks__checkpoint__f_history': save_history,
+        'dataset__length': len(train_dataset),
     })
 
     logging.info('Initializing NeuralNet')
@@ -135,4 +137,4 @@ def train(model: str = 'GNN',
     logging.debug('Configuration:\n\n%s\n', config)
     logging.debug('Network architecture:\n\n%s\n', str(net))
     logging.info('Starting training\n')
-    net.partial_fit(train_dataset, y=train_dataset.data.y)
+    net.partial_fit(train_dataset)
