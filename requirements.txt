@@ -1,8 +1,9 @@
 --find-links https://download.pytorch.org/whl/torch_stable.html
---find-links https://pytorch-geometric.com/whl/torch-1.8.0+cu102.html
-torch==1.8.0
-torchvision==0.9.0
-torchaudio==0.8.0
+--find-links https://pytorch-geometric.com/whl/torch-1.7.0+cu101.html
+git+https://github.com/loukasa/graph-coarsening.git
+torch==1.7.0+cu101
+torchvision==0.8.0
+torchaudio==0.7.0
 torch-scatter
 torch-sparse
 torch-cluster
@@ -20,4 +21,3 @@ fire
 tabulate
 numpydoc
 pygsp
-git+https://github.com/loukasa/graph-coarsening.git
