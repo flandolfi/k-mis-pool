@@ -1,10 +1,7 @@
 import logging
 
 import torch
-import numpy as np
 import pandas as pd
-
-from scipy import sparse
 from tqdm import tqdm
 
 from torch_geometric.typing import SparseTensor
@@ -93,7 +90,6 @@ def spectrum_approximation(num_eigenvalues: int = 10, max_k: int = 3,
 
                 results.append(metrics)
 
-    
     df = pd.DataFrame.from_records(results).set_index(['graph', 'n', 'm', 'k', 'sample'])
 
     if store_results is not None:
