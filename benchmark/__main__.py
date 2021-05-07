@@ -3,6 +3,8 @@ import fire
 from benchmark.approx import spectrum_approximation
 from benchmark.grids import draw_mnist
 from benchmark.sample import sample
+from benchmark.models import count_params
+from benchmark.train import train
 
 
 if __name__ == "__main__":
@@ -10,4 +12,6 @@ if __name__ == "__main__":
         'approx': lambda *args, **kwargs: str(spectrum_approximation(*args, **kwargs)),
         'mnist': draw_mnist,
         'sample': sample,
+        'count_params': count_params,
+        'train': train,
     })
