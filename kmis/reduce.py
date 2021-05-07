@@ -121,15 +121,14 @@ class KMISCoarsening(torch.nn.Module):
         if self.sample_partition or not self._sample_on_train:
             return out
 
-        diag = adj.get_diag()
+        diag = adj.get_diag().unsqueeze(-1)
 
         if torch.all(diag == 0.):
             return out
 
         n, s, device = adj.size(0), out.size(0), adj.device()
-        sigma = c_mat.t() @ (SparseTensor.eye(n, device=device).set_diag(-diag) @ c_mat)
-        sigma_diag = c_mat.t() @ diag.unsqueeze(-1)
-        sigma_diag = SparseTensor.eye(s, device=device).set_diag(sigma_diag.squeeze(-1))
+        sigma = c_mat.t() @ (utils.get_diagonal_matrix(-diag) @ c_mat)
+        sigma_diag = utils.get_diagonal_matrix(c_mat.t() @ diag)
 
         rows, cols, values = tuple(zip(out.coo(), sigma.coo(), sigma_diag.coo()))
         return SparseTensor(row=torch.cat(rows),
