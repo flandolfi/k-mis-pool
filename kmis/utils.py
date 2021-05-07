@@ -17,6 +17,12 @@ def normalize_dim(mat: SparseTensor, dim: int = -1) -> SparseTensor:
     return mat * norm
 
 
+def get_diagonal_matrix(diag: Tensor):
+    diag = diag.view(-1)
+    idx = torch.arange(diag.size(0), dtype=torch.long, device=diag.device)
+    return SparseTensor(row=idx, col=idx.clone(), value=diag)
+
+
 def get_laplacian_matrix(adj: SparseTensor, normalization: str = None):
     lap = adj.set_value(-adj.storage.value(), layout="coo")
     deg = adj.sum(-1)
