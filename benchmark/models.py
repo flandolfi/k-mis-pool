@@ -4,7 +4,6 @@ from torch.nn import functional as F
 
 from torch_geometric.data import Dataset
 from torch_geometric.nn import conv, glob, Sequential
-from torch_geometric.utils import add_self_loops
 from torch_geometric.typing import SparseTensor, Tensor, OptPairTensor
 from torch_geometric.datasets import GNNBenchmarkDataset
 
@@ -57,12 +56,17 @@ class GNN(nn.Module):
 
         self.blocks = nn.ModuleList()
 
+        if gnn in {conv.GCNConv, conv.ChebConv}:
+            signature = 'x, edge_index, edge_attr -> x'
+        else:
+            signature = 'x, edge_index -> x'
+
         for b in range(blocks):
             gnn_layers = []
 
             for _ in range(num_layers):
                 gnn_layers.extend([
-                    (gnn(hidden, hidden, **gnn_kwargs), 'x, edge_index, edge_attr -> x'),  # noqa
+                    (gnn(hidden, hidden, **gnn_kwargs), signature),  # noqa
                     nn.BatchNorm1d(hidden),
                     nn.ReLU()
                 ])
@@ -94,7 +98,6 @@ class GNN(nn.Module):
             x = torch.cat([x, pos], dim=-1)
 
         rank = self.ordering(x, adj)
-        i=-1
         self.pool.ordering = lambda *args, **kwargs: rank
 
         x = self.lin_in(x)
@@ -131,11 +134,6 @@ class ChebNet(GNN):
     def __init__(self, dataset, hidden=107, K=2, normalization="sym", *args, **kwargs):
         super(ChebNet, self).__init__(dataset, gnn="ChebConv", hidden=hidden, 
                                       K=K, normalization=normalization, *args, **kwargs)
-
-
-class GIN(GNN):
-    def __init__(self, dataset, hidden=90, *args, **kwargs):
-        super(GIN, self).__init__(dataset, gnn="GINConv", hidden=hidden, *args, **kwargs)  # noqa
 
 
 class GraphSAGEConv(conv.SAGEConv):
@@ -175,5 +173,7 @@ def count_params(model: str = 'GCN', dataset: str = 'MNIST',
 
 GCN100K = partial_class(GCN, hidden=106, blocks=2)
 GCN500K = partial_class(GCN, hidden=198, blocks=3)
+GraphSAGE100K = partial_class(GraphSAGE, hidden=63, blocks=2)
+GraphSAGE500K = partial_class(GraphSAGE, hidden=117, blocks=3)
 ChebNet100K = partial_class(ChebNet, hidden=77, blocks=2)
 ChebNet500K = partial_class(ChebNet, hidden=142, blocks=3)
