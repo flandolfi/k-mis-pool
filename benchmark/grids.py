@@ -40,12 +40,12 @@ def img2grid(img: torch.Tensor):
 
 
 def draw_mnist(**kwargs):
-    mnist = MNIST("data/", download=True)
+    mnist = MNIST("dataset/torchvision/", download=True)
     img = ToTensor()(mnist[0][0])[0]
     data = img2grid(img)
     k_mis = reduce.KMISCoarsening(**kwargs)
 
-    (x, pos), adj, _, _, _, _ = k_mis((data.x, data.pos), data.edge_index, data.edge_attr)
+    (x, pos), adj, _, _, _ = k_mis((data.x, data.pos), data.edge_index, data.edge_attr)
     row, col, val = adj.coo()
     redux = Data(x=x, pos=pos, edge_index=torch.stack([row, col]), edge_attr=val)
     draw_data(redux, figsize=(12, 12))

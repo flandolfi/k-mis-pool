@@ -39,7 +39,7 @@ def spectrum_approximation(num_eigenvalues: int = 10, max_k: int = 3,
 
         for k in tqdm(list(range(1, max_k + 1)), leave=False):
             k_mis = reduce.KMISCoarsening(k=k, sample_partition=False, **kwargs)
-            c_mat, p_inv, mis = k_mis.get_coarsening_matrices(adj, data.pos)
+            c_mat, mis = k_mis.get_coarsening_matrix(adj, data.pos)
 
             for partition in [False, True]:
                 if partition:
