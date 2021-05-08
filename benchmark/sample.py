@@ -27,7 +27,8 @@ def sample(graph: str = "airfoil", matrix: str = "lift", iterations: int = 10000
     data = graphs.gsp2pyg(G).to(device)
     idx, val, n = data.edge_index, data.edge_attr, data.num_nodes
     adj = SparseTensor.from_edge_index(idx, val, sparse_sizes=(n, n))
-    c_mat, l_mat, _ = k_mis.get_coarsening_matrices(adj, data.pos)
+    c_mat, _ = k_mis.get_coarsening_matrix(adj, data.pos)
+    l_mat = normalize_dim(c_mat.t(), -1)
 
     if matrix == 'c':
         target = c_mat.to_dense()
@@ -43,7 +44,8 @@ def sample(graph: str = "airfoil", matrix: str = "lift", iterations: int = 10000
 
     m_approx = torch.zeros_like(target)
     p_bar = tqdm(list(range(1, iterations + 1)), leave=True)
-    k_mis.sample_partition = True
+    k_mis.sample_partition = 'on_train'
+    k_mis.training = False
     i = 1
 
     try:
