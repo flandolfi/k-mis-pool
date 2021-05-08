@@ -61,13 +61,17 @@ def cluster_k_mis(adj: SparseTensor, k: int = 1, rank: OptTensor = None) -> Tupl
 class KMISCoarsening(MessagePassing):
     propagate_type = {'x': Tensor}
     
-    def __init__(self, k=1, ordering='random', eps=0.5, sample_partition='on_train', aggr='mean'):
-        super(KMISCoarsening, self).__init__(aggr=aggr)
+    def __init__(self, k=1, ordering='random', eps=0.5, 
+                 sample_partition='on_train', 
+                 sample_aggregate=False, **kwargs):
+        kwargs.setdefault('aggr', 'add')
+        super(KMISCoarsening, self).__init__(**kwargs)
 
         self.k = k
         self.eps = eps
         self.ordering: orderings.Ordering = self._get_ordering(ordering)
         self.sample_partition = sample_partition
+        self.sample_aggregate = sample_aggregate
 
     @property
     def sample_partition(self):
@@ -108,11 +112,13 @@ class KMISCoarsening(MessagePassing):
 
         return getattr(orderings, cls_name)(**opts)
 
-    def pool(self, c_mat_t: SparseTensor, x: OptTensor) -> OptTensor:
+    def pool(self, c_mat: SparseTensor, x: OptTensor) -> OptTensor:
+        l_mat = utils.normalize_dim(c_mat.t(), -1)
+
         if x is None:
             return None
         
-        return self.propagate(c_mat_t, x=x)
+        return self.propagate(l_mat, x=x)
 
     def coarsen(self, c_mat: Union[Tensor, SparseTensor], adj: SparseTensor) -> Union[Tensor, SparseTensor]:
         out = c_mat.t() @ (adj @ c_mat)
@@ -183,12 +189,15 @@ class KMISCoarsening(MessagePassing):
         out_mat, mis = self.get_coarsening_matrix(adj, rank)
         
         if self._return_pair:
-            _, c_mat = out_mat
+            c_mat, p_mat = out_mat
+
+            if self.sample_aggregate:
+                c_mat = p_mat
         else:
-            c_mat = out_mat
+            c_mat = p_mat = out_mat
             
-        out_adj = self.coarsen(c_mat, adj)
-        out_x = self.pool(c_mat.t(), x)
+        out_adj = self.coarsen(p_mat, adj)
+        out_x = self.pool(c_mat, x)
         
         if batch is not None:
             batch = batch[mis]

@@ -34,6 +34,7 @@ class GNN(nn.Module):
                  node_level=False, readout=False,
                  k=1, ordering='random', eps=0.5,
                  sample_partition='on_train',
+                 sample_aggregate=False,
                  **gnn_kwargs):
         super(GNN, self).__init__()
 
