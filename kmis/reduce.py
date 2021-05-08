@@ -183,12 +183,12 @@ class KMISCoarsening(MessagePassing):
         out_mat, mis = self.get_coarsening_matrix(adj, rank)
         
         if self._return_pair:
-            c_mat, l_mat = out_mat
+            _, c_mat = out_mat
         else:
-            c_mat = l_mat = out_mat
+            c_mat = out_mat
             
         out_adj = self.coarsen(c_mat, adj)
-        out_x = self.pool(l_mat.t(), x)
+        out_x = self.pool(c_mat.t(), x)
         
         if batch is not None:
             batch = batch[mis]
