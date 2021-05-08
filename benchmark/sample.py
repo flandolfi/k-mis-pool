@@ -21,13 +21,14 @@ def sample(graph: str = "airfoil", matrix: str = "lift", iterations: int = 10000
         else:
             device = 'cpu'
 
-    k_mis = reduce.KMISCoarsening(sample_partition=False, **kwargs)
+    k_mis = reduce.KMISCoarsening(sample_partition="on_train", **kwargs)
+    k_mis.training = False
 
     G = graphs.get_graph(graph)
     data = graphs.gsp2pyg(G).to(device)
     idx, val, n = data.edge_index, data.edge_attr, data.num_nodes
     adj = SparseTensor.from_edge_index(idx, val, sparse_sizes=(n, n))
-    c_mat, _ = k_mis.get_coarsening_matrix(adj, data.pos)
+    (c_mat, _), _ = k_mis.get_coarsening_matrix(adj, data.pos)
     l_mat = normalize_dim(c_mat.t(), -1)
 
     if matrix == 'c':
@@ -44,8 +45,7 @@ def sample(graph: str = "airfoil", matrix: str = "lift", iterations: int = 10000
 
     m_approx = torch.zeros_like(target)
     p_bar = tqdm(list(range(1, iterations + 1)), leave=True)
-    k_mis.sample_partition = 'on_train'
-    k_mis.training = False
+    k_mis.sample_partition = False
     i = 1
 
     try:

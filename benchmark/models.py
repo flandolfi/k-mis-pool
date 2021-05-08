@@ -102,7 +102,7 @@ class GNN(nn.Module):
         self.pool.ordering = lambda *args, **kwargs: rank
 
         xs = []
-        l_mats = []
+        c_mats = []
 
         x = self.lin_in(x)
         out = x = self.in_block(x, edge_index, edge_attr)
@@ -114,7 +114,7 @@ class GNN(nn.Module):
                 else:
                     xs.append(glob.global_mean_pool(out, batch, b))
 
-            x, edge_index, batch, mis, c_mat, l_mat = self.pool(x, edge_index, edge_attr, batch)
+            x, edge_index, batch, mis, (c_mat, p_mat) = self.pool(x, edge_index, edge_attr, batch)
             _, rank = torch.unique(rank[mis], sorted=True, return_inverse=True)
 
             row, col, edge_attr = edge_index.coo()
@@ -122,9 +122,9 @@ class GNN(nn.Module):
             out = x = block(x, edge_index, edge_attr)
 
             if self.node_level:
-                l_mats.append(l_mat.t())
+                c_mats.append(c_mat)
 
-                for m in l_mats[::-1]:
+                for m in c_mats[::-1]:
                     out = m @ out
 
         if self.node_level:
