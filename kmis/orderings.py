@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 from torch_sparse import SparseTensor
 
-from kmis.utils import get_ranking, get_laplacian_matrix, normalize_dim
+from kmis import utils
 
 
 class Ordering(ABC):
@@ -12,7 +12,7 @@ class Ordering(ABC):
         self.descending = descending
 
     def __call__(self, x: Tensor, adj: SparseTensor) -> Tensor:
-        return get_ranking(self._compute(x, adj), self.descending)
+        return utils.get_ranking(self._compute(x, adj), self.descending)
 
     @abstractmethod
     def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
@@ -54,7 +54,7 @@ class RandomWalk(Ordering):
     def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
         n = adj.size(1)
         p = torch.ones((n, 1), dtype=torch.float, device=adj.device())/n
-        rw = normalize_dim(adj).t()
+        rw = utils.normalize_dim(adj).t()
 
         for _ in range(self.k):
             p = rw @ p 
@@ -69,7 +69,7 @@ class Curvature(Ordering):
         self.k = k
 
     def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
-        lap = get_laplacian_matrix(adj, self.normalization)
+        lap = utils.get_laplacian_matrix(adj, self.normalization)
         H = x
 
         for _ in range(self.k):
@@ -85,14 +85,19 @@ class LocalVariation(Ordering):
         self.k = k
 
     def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
-        lap = get_laplacian_matrix(adj, self.normalization)
-        H = x
+        rw = utils.normalize_dim(adj, -1)
+        rw.storage._value *= 0.5
+        rw = rw.set_diag(rw.get_diag() + 0.5)
+        inc = utils.get_incidence_matrix(adj)
+        var = x
 
         for _ in range(self.k):
-            H = lap @ H
+            var = rw @ var
         
-        norm = torch.norm(x, p=2, dim=0, keepdim=True)
-        return torch.norm((x - H)/norm, p=2, dim=-1)
+        norm = torch.norm(inc.t() @ x, p=2, dim=0, keepdim=True)
+        var = inc.t() @ (x - var)
+        var = inc.fill_value(1.) @ (var ** 2)
+        return torch.mean(var, dim=-1)
 
 
 class Lambda(Ordering):
