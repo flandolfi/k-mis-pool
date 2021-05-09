@@ -6,11 +6,12 @@ mkdir -p $RESULTS_DIR
 for DS in PATTERN CLUSTER; do
     for MODEL in GCN ChebNet GraphSAGE; do
         for PARAMS in 100K 500K; do
-            for POOL in "_" "_P_"; do
-                NAME="${MODEL}${POOL}${PARAMS}"
+            for ORDER in "random" "min-local-variation"; do
+                NAME="${MODEL}_P_${PARAMS}"
                 python -m benchmark train --model $NAME --dataset $DS \
-                    --save_params ${RESULTS_DIR}/${NAME}.pt \
-                    --save_history ${RESULTS_DIR}/${NAME}.json \
+                    --module__ordering $ORDER \
+                    --save_params ${RESULTS_DIR}/${NAME}_${ORDER}.pt \
+                    --save_history ${RESULTS_DIR}/${NAME}_${ORDER}.json \
                     --batch_size 128 --num_workers 8 $@
             done
         done
