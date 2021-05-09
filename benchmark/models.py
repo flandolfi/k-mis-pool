@@ -109,11 +109,10 @@ class GNN(nn.Module):
         out = x = self.in_block(x, edge_index, edge_attr)
 
         for i, block in enumerate(self.blocks):
-            if self.readout:
-                if self.node_level:
-                    xs.append(out)
-                else:
-                    xs.append(glob.global_mean_pool(out, batch, b))
+            if self.node_level:
+                xs.append(out)
+            elif self.readout:
+                xs.append(glob.global_mean_pool(out, batch, b))
 
             x, edge_index, batch, mis, (c_mat, p_mat) = self.pool(x, edge_index, edge_attr, batch)
             _, rank = torch.unique(rank[mis], sorted=True, return_inverse=True)
@@ -133,10 +132,14 @@ class GNN(nn.Module):
         else:
             xs.append(glob.global_mean_pool(out, batch, b))
 
-        out = torch.cat(xs, dim=-1)
-        out = self.lin_out(out)
+        if self.readout:
+            out = torch.cat(xs, dim=-1)
+        elif self.node_level:
+            out = sum(xs)
+        else:
+            out = xs[-1]
 
-        return out
+        return self.lin_out(out)
 
 
 class GCN(GNN):
@@ -185,9 +188,16 @@ def count_params(model: str = 'GCN', dataset: str = 'MNIST',
     return sum(p.numel() for p in net.parameters() if p.requires_grad)
 
 
-GCN100K = partial_class(GCN, hidden=106, blocks=2)
-GCN500K = partial_class(GCN, hidden=198, blocks=3)
-GraphSAGE100K = partial_class(GraphSAGE, hidden=63, blocks=2)
-GraphSAGE500K = partial_class(GraphSAGE, hidden=117, blocks=3)
-ChebNet100K = partial_class(ChebNet, hidden=77, blocks=2)
-ChebNet500K = partial_class(ChebNet, hidden=142, blocks=3)
+GCN_100K = GCN
+GCN_500K = partial_class(GCN, hidden=172, num_layers=16)
+GraphSAGE_100K = GraphSAGE
+GraphSAGE_500K = partial_class(GraphSAGE, hidden=101, num_layers=16)
+ChebNet_100K = ChebNet
+ChebNet_500K = partial_class(ChebNet, hidden=123, num_layers=16)
+
+GCN_P_100K = partial_class(GCN, hidden=106, blocks=2)
+GCN_P_500K = partial_class(GCN, hidden=198, blocks=3)
+GraphSAGE_P_100K = partial_class(GraphSAGE, hidden=63, blocks=2)
+GraphSAGE_P_500K = partial_class(GraphSAGE, hidden=117, blocks=3)
+ChebNet_P_100K = partial_class(ChebNet, hidden=77, blocks=2)
+ChebNet_P_500K = partial_class(ChebNet, hidden=142, blocks=3)
