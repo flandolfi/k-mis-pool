@@ -79,9 +79,8 @@ class Curvature(Ordering):
 
 
 class LocalVariation(Ordering):
-    def __init__(self, descending=True, normalization=None, k=1):
+    def __init__(self, descending=True, k=1):
         super(LocalVariation, self).__init__(descending)
-        self.normalization = normalization
         self.k = k
 
     def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
