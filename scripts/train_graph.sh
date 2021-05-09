@@ -3,7 +3,7 @@
 RESULTS_DIR="./results/"
 mkdir -p $RESULTS_DIR
 
-for DS in MNIST CIFAR10 PATTERN CLUSTER; do
+for DS in MNIST CIFAR10; do
     for MODEL in GCN ChebNet GraphSAGE; do
         for PARAMS in 100K 500K; do
             for POOL in "_" "_P_"; do
