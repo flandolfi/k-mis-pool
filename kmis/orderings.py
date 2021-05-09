@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 import torch
 from torch import Tensor
 from torch_sparse import SparseTensor
+from torch_scatter import scatter_mean
 
 from kmis import utils
 
@@ -88,15 +89,16 @@ class LocalVariation(Ordering):
         rw.storage._value *= 0.5
         rw = rw.set_diag(rw.get_diag() + 0.5)
         inc = utils.get_incidence_matrix(adj)
+        n_id, e_id, _ = inc.coo() 
         var = x
 
         for _ in range(self.k):
             var = rw @ var
         
-        norm = torch.norm(inc.t() @ x, p=2, dim=0, keepdim=True)
-        var = inc.t() @ (x - var)
-        var = inc.fill_value(1.) @ (var ** 2)
-        return torch.mean(var, dim=-1)
+        var = torch.square(inc.t() @ (x - var))
+        var = scatter_mean(var[e_id], n_id, dim=0, dim_size=rw.size(0))
+        norm = torch.norm(x, p=2, dim=0, keepdim=True)
+        return torch.mean(var/norm, dim=-1)
 
 
 class Lambda(Ordering):
