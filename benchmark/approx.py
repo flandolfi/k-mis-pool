@@ -51,17 +51,8 @@ def spectrum_approximation(num_eigenvalues: int = 10, max_k: int = 3,
                 nc = mat_redux.size(0)
                 mc = (mat_redux.nnz() - nc)//2
 
-                l, U = torch.lobpcg(mat.to_torch_sparse_coo_tensor(),
-                                    k=num_eigenvalues, largest=largest, tol=1e-3)
-
-                if nc < 3 * num_eigenvalues:
-                    dense_mat_redux = mat_redux.to_dense()
-                    lc, _ = torch.eig(dense_mat_redux)
-                    lc, _ = torch.sort(lc.T[0], descending=largest)
-                    lc = lc[:num_eigenvalues]
-                else:
-                    lc, _ = torch.lobpcg(mat_redux.to_torch_sparse_coo_tensor(),
-                                         k=num_eigenvalues, largest=largest, tol=1e-3)
+                l, U = utils.sparse_eig(mat, k=num_eigenvalues, largest=largest)
+                lc, Uc = utils.sparse_eig(mat_redux, k=num_eigenvalues, largest=largest)
 
                 eig_err = torch.where(l == 0, torch.zeros_like(l), torch.abs(l - lc)/l)
                 eig_err = eig_err.mean()

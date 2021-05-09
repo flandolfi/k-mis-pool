@@ -52,3 +52,25 @@ def get_incidence_matrix(adj: SparseTensor):
                         col=torch.cat([idx, idx], dim=0),
                         value=torch.cat([val, -val], dim=0),
                         sparse_sizes=(n, m))
+
+
+def sparse_eig(mat: SparseTensor, k: int = None, largest=True):
+    n, m = mat.sparse_sizes()
+    assert n == m, "`mat` must be symmetric."
+
+    if k is None or n < 3*k:
+        mat = mat.to_dense()
+        l, U = torch.eig(mat, eigenvectors=True)
+        l = l.T[0]
+
+        if k is None:
+            l, perm = torch.sort(l, descending=largest)
+        else:
+            l, perm = torch.topk(l, k=k, largest=largest, sorted=True)
+        
+        U = U[:, perm]
+    else:
+        mat = mat.to_torch_sparse_coo_tensor()
+        l, U = torch.lobpcg(mat, k=k, largest=largest, tol=1e-3)
+
+    return l, U
