@@ -4,7 +4,7 @@ from benchmark.approx import spectrum_approximation
 from benchmark.grids import draw_mnist
 from benchmark.sample import sample
 from benchmark.models import count_params
-from benchmark.train import train
+from benchmark.train import train, score
 
 
 if __name__ == "__main__":
@@ -14,4 +14,5 @@ if __name__ == "__main__":
         'sample': sample,
         'count_params': count_params,
         'train': train,
+        'score': score,
     })

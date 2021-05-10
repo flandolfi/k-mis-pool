@@ -138,3 +138,39 @@ def train(model: str = 'GNN',
     logging.debug('Network architecture:\n\n%s\n', str(net))
     logging.info('Starting training\n')
     net.partial_fit(train_dataset)
+
+
+def score(model: str = 'GNN',
+          dataset: str = 'MNIST',
+          root: str = './dataset/',
+          params_path: str = 'params.pt',
+          batch_size: int = -1,
+          num_workers: int = 0,
+          logging_level: int = logging.INFO,
+          **net_kwargs):
+    opts = dict(DEFAULT_NET_PARAMS)
+    logging.basicConfig(format='%(levelname)s: %(message)s', level=logging_level)
+
+    dataset = dataset.upper()
+    logging.info(f'Loading {dataset} Dataset')
+    test_dataset = GNNBenchmarkDataset(root=root, name=dataset, split='test')
+
+    opts.update({
+        'module': getattr(models, model),
+        'module__dataset': test_dataset,
+        'module__node_level': dataset in {'CLUSTER', 'PATTERN'},
+        'batch_size': batch_size,
+        'iterator_valid__num_workers': num_workers,
+        'dataset__length': len(test_dataset),
+    })
+
+    logging.info('Initializing NeuralNet')
+    opts.update(net_kwargs)
+    net = NeuralNetClassifier(**opts).initialize()
+    net.load_params(f_params=params_path)
+
+    config = '\n'.join([f'{f"{k} ".ljust(50, ".")} {v}' for k, v in opts.items()])
+    logging.debug('Configuration:\n\n%s\n', config)
+    logging.debug('Network architecture:\n\n%s\n', str(net))
+    logging.info('Starting inference\n')
+    return net.score(test_dataset, test_dataset.data.y)
