@@ -189,11 +189,11 @@ def count_params(model: str = 'GCN', dataset: str = 'MNIST',
 
 
 GCN_100K = GCN
-GCN_500K = partial_class(GCN, hidden=172, num_layers=16)
+GCN_500K = partial_class(GCN, hidden=198, num_layers=12)
 GraphSAGE_100K = GraphSAGE
-GraphSAGE_500K = partial_class(GraphSAGE, hidden=101, num_layers=16)
+GraphSAGE_500K = partial_class(GraphSAGE, hidden=117, num_layers=12)
 ChebNet_100K = ChebNet
-ChebNet_500K = partial_class(ChebNet, hidden=123, num_layers=16)
+ChebNet_500K = partial_class(ChebNet, hidden=142, num_layers=12)
 
 GCN_P_100K = partial_class(GCN, hidden=106, blocks=2)
 GCN_P_500K = partial_class(GCN, hidden=198, blocks=3)
