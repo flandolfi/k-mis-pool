@@ -113,11 +113,10 @@ class KMISCoarsening(MessagePassing):
         return getattr(orderings, cls_name)(**opts)
 
     def pool(self, c_mat: SparseTensor, x: OptTensor) -> OptTensor:
-        l_mat = utils.normalize_dim(c_mat.t(), -1)
-
         if x is None:
             return None
         
+        l_mat = utils.normalize_dim(c_mat.t(), -1)
         return self.propagate(l_mat, x=x)
 
     def coarsen(self, c_mat: Union[Tensor, SparseTensor], adj: SparseTensor) -> Union[Tensor, SparseTensor]:
