@@ -5,6 +5,7 @@ from benchmark.grids import draw_mnist
 from benchmark.sample import sample
 from benchmark.models import count_params
 from benchmark.train import train, score
+from benchmark.isomap import isomap
 
 
 if __name__ == "__main__":
@@ -15,4 +16,5 @@ if __name__ == "__main__":
         'count_params': count_params,
         'train': train,
         'score': score,
+        'isomap': isomap,
     })

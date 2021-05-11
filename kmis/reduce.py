@@ -1,9 +1,12 @@
+from typing import Union, Tuple, Optional, Callable
+
 import torch
 
-from torch_geometric.typing import Adj, Tensor, Tuple, OptTensor, Size, Union, Optional, OptPairTensor
+from torch_geometric.typing import Adj, Tensor, OptTensor, Size, OptPairTensor
 from torch_geometric.nn.conv import MessagePassing
 from torch_sparse import SparseTensor
 from torch_scatter import scatter_min
+from torch_cluster import radius_graph, knn_graph
 
 from kmis import orderings, sample, utils
 
@@ -61,9 +64,11 @@ def cluster_k_mis(adj: SparseTensor, k: int = 1, rank: OptTensor = None) -> Tupl
 class KMISCoarsening(MessagePassing):
     propagate_type = {'x': Tensor}
     
-    def __init__(self, k=1, ordering='random', eps=0.5, 
-                 sample_partition='on_train', 
-                 sample_aggregate=False, **kwargs):
+    def __init__(self, k: int = 1,
+                 ordering: Union[Callable, str] = 'random',
+                 eps: float = 0.5,
+                 sample_partition: Union[bool, str] = 'on_train',
+                 sample_aggregate: bool = False, **kwargs):
         kwargs.setdefault('aggr', 'add')
         super(KMISCoarsening, self).__init__(**kwargs)
 
@@ -208,3 +213,45 @@ class KMISCoarsening(MessagePassing):
     
     def message_and_aggregate(self, adj_t: SparseTensor, x: Tensor) -> Tensor:  # noqa
         return adj_t.matmul(x, reduce=self.aggr)
+
+
+class KMISIsomap(torch.nn.Module):
+    def __init__(self, components: int = 2, neighbors: Union[int, float] = 8,
+                 p: float = 2, use_knn: bool = True, *args, **kwargs):
+        super(KMISIsomap, self).__init__()
+        
+        self.components = components
+        self.neighbors = neighbors
+        self.compute_graph = knn_graph if use_knn else radius_graph
+        self.k_mis = KMISCoarsening(sample_partition=False, *args, **kwargs)
+        self.p = p
+        
+    @staticmethod
+    def floyd_warshall(dists: Tensor):
+        for i in range(dists.size(0)):
+            dists = torch.minimum(dists, dists[[i], :] + dists[:, [i]])
+        
+        return dists
+        
+    def forward(self, x: Tensor, batch: OptTensor = None):
+        row, col = edge_index = self.compute_graph(x, self.neighbors, batch=batch)
+        edge_attr = torch.pairwise_distance(x[row], x[col], p=self.p)
+        edge_attr = torch.exp(-torch.square(edge_attr))
+        
+        y, adj, batch, mis, c_mat = self.k_mis(x, edge_index, edge_attr, batch)
+        
+        row, col, _ = adj.coo()
+        mask = adj.bool().to_dense()
+        dists = torch.full_like(mask, float("inf"), dtype=torch.float)
+        dists[mask] = torch.pairwise_distance(y[row], y[col], p=self.p)
+        
+        dists = torch.minimum(dists, dists.T)
+        dists = 0.5 * self.floyd_warshall(dists)**2
+        
+        n = dists.size(0)
+        H = torch.eye(n, dtype=torch.float, device=dists.device) - torch.ones_like(dists)/n
+        B = -0.5 * H @ dists @ H
+        l, U = torch.lobpcg(B, k=self.components)
+        p = U * torch.sqrt(l[None, :])
+
+        return 0.5 * (c_mat @ p)

@@ -1,1 +1,1 @@
-from kmis.reduce import KMISCoarsening
+from kmis.reduce import KMISCoarsening, KMISIsomap
