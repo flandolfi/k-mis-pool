@@ -179,7 +179,7 @@ class KMISCoarsening(MessagePassing):
         if isinstance(x, tuple):
             rank, x = x
             rank_cut = rank.size(1)
-            x = torch.cat([rank, x])
+            x = torch.cat([rank, x], dim=-1)
 
         if isinstance(adj, Tensor):
             size = self._maybe_size(x, batch)
