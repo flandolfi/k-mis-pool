@@ -39,14 +39,27 @@ def img2grid(img: torch.Tensor):
     return Data(edge_index=idx, pos=pos, x=img)
 
 
-def draw_mnist(**kwargs):
+def draw_mnist(show=True, save_fig: str = None, index: int = 0, size: int = 12, pool=False, k=1, **kwargs):
     mnist = MNIST("dataset/torchvision/", download=True)
-    img = ToTensor()(mnist[0][0])[0]
-    data = img2grid(img)
-    k_mis = reduce.KMISCoarsening(**kwargs)
-
-    (x, pos), adj, _, _, _ = k_mis((data.x, data.pos), data.edge_index, data.edge_attr)
-    row, col, val = adj.coo()
-    redux = Data(x=x, pos=pos, edge_index=torch.stack([row, col]), edge_attr=val)
-    draw_data(redux, figsize=(12, 12))
-    plt.show()
+    img = ToTensor()(mnist[0][0])[index]
+    
+    if pool:
+        pool = torch.nn.AvgPool2d(kernel_size=2*k+1, stride=k+1, padding=k, ceil_mode=False)
+        img = pool(img.unsqueeze(0)).squeeze(0).cpu().numpy()
+        _, ax = plt.subplots(figsize=(size, size))
+        ax.imshow(img, cmap='viridis', vmin=0, vmax=1)
+        ax.set_axis_off()
+    else:
+        data = img2grid(img)
+        k_mis = reduce.KMISCoarsening(k=k, **kwargs)
+    
+        (x, pos), adj, _, _, _ = k_mis((data.x, data.pos), data.edge_index, data.edge_attr)
+        row, col, val = adj.coo()
+        redux = Data(x=x, pos=pos, edge_index=torch.stack([row, col]), edge_attr=val)
+        draw_data(redux, figsize=(size, size))
+    
+    if show:
+        plt.show()
+    
+    if save_fig:
+        plt.savefig(save_fig, format=save_fig.split('.')[-1], bbox_inches='tight')
