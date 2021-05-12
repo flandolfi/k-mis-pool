@@ -19,8 +19,6 @@ from benchmark.callbacks import LateStopping, LRLowerBound
 utils.fix_skorch()
 warnings.filterwarnings("ignore", category=UserWarning)
 
-np.random.seed(42)
-torch.random.manual_seed(42)
 device = 'cpu'
 
 if torch.cuda.is_available():
@@ -76,6 +74,7 @@ def train(model: str = 'GNN',
           save_params: str = None,
           save_history: str = None,
           logging_level: int = logging.INFO,
+          seed: int = 42,
           **net_kwargs):
     """Train a model on a GNNBenchmark Dataset.
     Args:
@@ -128,6 +127,10 @@ def train(model: str = 'GNN',
         'callbacks__checkpoint__f_history': save_history,
         'dataset__length': len(train_dataset),
     })
+
+    logging.debug(f'Setting random seed to {seed}')
+    np.random.seed(seed)
+    torch.random.manual_seed(seed)
 
     logging.info('Initializing NeuralNet')
     opts.update(net_kwargs)
