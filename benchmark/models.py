@@ -188,16 +188,18 @@ def count_params(model: str = 'GCN', dataset: str = 'MNIST',
     return sum(p.numel() for p in net.parameters() if p.requires_grad)
 
 
-GCN_100K = GCN
-GCN_500K = partial_class(GCN, hidden=198, num_layers=12)
-GraphSAGE_100K = GraphSAGE
-GraphSAGE_500K = partial_class(GraphSAGE, hidden=117, num_layers=12)
-ChebNet_100K = ChebNet
-ChebNet_500K = partial_class(ChebNet, hidden=142, num_layers=12)
+GCN_4 = GCN
+GraphSAGE_4 = GraphSAGE
+ChebNet_4 = ChebNet
 
-GCN_P_100K = partial_class(GCN, hidden=106, blocks=2)
-GCN_P_500K = partial_class(GCN, hidden=198, blocks=3)
-GraphSAGE_P_100K = partial_class(GraphSAGE, hidden=63, blocks=2)
-GraphSAGE_P_500K = partial_class(GraphSAGE, hidden=117, blocks=3)
-ChebNet_P_100K = partial_class(ChebNet, hidden=77, blocks=2)
-ChebNet_P_500K = partial_class(ChebNet, hidden=142, blocks=3)
+GCN_22 = partial_class(GCN, num_layers=2, blocks=2)
+GraphSAGE_22 = partial_class(GraphSAGE, num_layers=2, blocks=2)
+ChebNet_22 = partial_class(ChebNet, num_layers=2, blocks=2)
+
+GCN_8 = partial_class(GCN, hidden=106, num_layers=8)
+GraphSAGE_8 = partial_class(GraphSAGE, hidden=63, num_layers=8)
+ChebNet_8 = partial_class(ChebNet, hidden=77, num_layers=8)
+
+GCN_44 = partial_class(GCN, hidden=106, blocks=2)
+GraphSAGE_44 = partial_class(GraphSAGE, hidden=63, blocks=2)
+ChebNet_44 = partial_class(ChebNet, hidden=77, blocks=2)
