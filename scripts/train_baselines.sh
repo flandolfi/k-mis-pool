@@ -8,13 +8,15 @@ for DS in MNIST CIFAR10 CLUSTER PATTERN; do
     mkdir -p $DIR
 
     for MODEL in GCN ChebNet GraphSAGE; do
-        for PARAMS in 100K 500K; do
-            NAME="${MODEL}_${PARAMS}"
+        for CONFIG in 4 8; do
+            for SEED in `seq 5`; do
+                NAME="${MODEL}_${CONFIG}"
 
-            python -m benchmark train --model $NAME --dataset $DS \
-                --save_params ${DIR}/${NAME}.pt \
-                --save_history ${DIR}/${NAME}.json \
-                --batch_size 128 --num_workers 8 $@
+                python -m benchmark train --model $NAME --dataset $DS \
+                    --save_params ${DIR}/${NAME}__${SEED}.pt \
+                    --save_history ${DIR}/${NAME}__${SEED}.json \
+                    --batch_size 128 --num_workers 8 --seed $SEED $@
+            done
         done
     done
 done
