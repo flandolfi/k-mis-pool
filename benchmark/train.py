@@ -2,7 +2,6 @@ import warnings
 import logging
 
 import torch
-import numpy as np
 
 from torch_geometric.data import DataLoader
 from torch_geometric.datasets import GNNBenchmarkDataset
@@ -22,7 +21,6 @@ warnings.filterwarnings("ignore", category=UserWarning)
 device = 'cpu'
 
 if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(42)
     device = 'cuda'
 
 DEFAULT_NET_PARAMS = {
@@ -129,8 +127,7 @@ def train(model: str = 'GNN',
     })
 
     logging.debug(f'Setting random seed to {seed}')
-    np.random.seed(seed)
-    torch.random.manual_seed(seed)
+    utils.set_seed(seed)
 
     logging.info('Initializing NeuralNet')
     opts.update(net_kwargs)

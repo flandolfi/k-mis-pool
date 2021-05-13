@@ -48,3 +48,11 @@ def fix_skorch():
     skorch.net.to_tensor = _to_tensor_wrapper(skorch.net.to_tensor)
     Dataset.__getitem__ = _get_item_wrapper(Dataset.__getitem__)
     sklearn.utils.validation.check_consistent_length = lambda *arrays: None
+
+
+def set_seed(seed):
+    np.random.seed(seed)
+    torch.random.manual_seed(seed)
+
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
