@@ -1,3 +1,4 @@
+import inspect
 from abc import ABC, abstractmethod
 
 import torch
@@ -115,3 +116,26 @@ class Lambda(Ordering):
             return out[0]
 
         return out
+
+
+def get_ordering(name: str, **kwargs) -> Ordering:
+    tokens = name.split('-')
+    opts = {'descending': True}
+
+    if len(tokens) > 1 and tokens[0] in {'min', 'max'}:
+        opts['descending'] = tokens[0] == 'max'
+        tokens = tokens[1:]
+
+    cls_name = ''.join(t.title() for t in tokens)
+    glob = globals()
+
+    if cls_name not in glob:
+        return Lambda(getattr(torch, tokens[-1]), **opts)
+
+    cls = glob[cls_name]
+    keys = kwargs.keys() & dict(inspect.signature(cls.__init__).parameters).keys()
+
+    for k in keys:
+        opts[k] = kwargs[k]
+
+    return cls(**opts)

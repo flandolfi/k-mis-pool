@@ -1,6 +1,8 @@
+from typing import Callable, Tuple, Union, Optional
+
 import torch
 
-from torch_geometric.typing import Adj, Tensor, Tuple, OptTensor, Size, Union, Optional, OptPairTensor
+from torch_geometric.typing import Adj, Tensor, OptTensor, Size, OptPairTensor
 from torch_geometric.nn.conv import MessagePassing
 from torch_sparse import SparseTensor
 from torch_scatter import scatter_min
@@ -8,6 +10,7 @@ from torch_scatter import scatter_min
 from kmis import orderings, sample, utils
 
 OptPairSparseTensor = Union[SparseTensor, Tuple[SparseTensor, SparseTensor]]
+OptOrdering = Callable[[Tensor, SparseTensor], OptTensor]
 
 
 def get_coarsening_matrix(adj: SparseTensor, k: int = 1, eps: float = 0.5,
@@ -61,17 +64,25 @@ def cluster_k_mis(adj: SparseTensor, k: int = 1, rank: OptTensor = None) -> Tupl
 class KMISCoarsening(MessagePassing):
     propagate_type = {'x': Tensor}
     
-    def __init__(self, k=1, ordering='random', eps=0.5, 
-                 sample_partition='on_train', 
-                 sample_aggregate=False, **kwargs):
+    def __init__(self, k: int = 1,
+                 ordering: Optional[Union[OptOrdering, str]] = 'random',
+                 eps: float = 0.5,
+                 sample_partition: Union[bool, str] = 'on_train',
+                 sample_aggregate: bool = False, **kwargs):
         kwargs.setdefault('aggr', 'add')
         super(KMISCoarsening, self).__init__(**kwargs)
 
         self.k = k
         self.eps = eps
-        self.ordering: orderings.Ordering = self._get_ordering(ordering)
         self.sample_partition = sample_partition
         self.sample_aggregate = sample_aggregate
+
+        if ordering is None:
+            self.ordering: OptOrdering = lambda x, adj: None
+        elif isinstance(ordering, str):
+            self.ordering = orderings.get_ordering(ordering, k=k, normalization='rw')
+        else:
+            self.ordering = ordering
 
     @property
     def sample_partition(self):
@@ -84,33 +95,6 @@ class KMISCoarsening(MessagePassing):
         self._sample_on_train = sample_partition in {True, 'on_train'}
         self._sample_on_valid = sample_partition == True  # noqa
         self._return_pair = self._sample_on_train or self._sample_on_valid
-
-    def _get_ordering(self, ordering):
-        if ordering is None:
-            return None
-
-        if callable(ordering):
-            return ordering
-
-        if not isinstance(ordering, str):
-            raise ValueError(f"Expected string or callable, got {ordering} instead.")
-
-        tokens = ordering.split('-')
-        opts = {'descending': True}
-
-        if len(tokens) > 1 and tokens[0] in {'min', 'max'}:
-            opts['descending'] = tokens[0] == 'max'
-            tokens = tokens[1:]
-
-        if tokens[-1] in {'paths', 'curvature', 'walk'}:
-            opts['k'] = self.k
-
-        cls_name = ''.join(t.title() for t in tokens)
-
-        if not hasattr(orderings, cls_name):
-            return orderings.Lambda(getattr(torch, tokens[-1]), **opts)
-
-        return getattr(orderings, cls_name)(**opts)
 
     def pool(self, c_mat: SparseTensor, x: OptTensor) -> OptTensor:
         if x is None:
@@ -149,15 +133,9 @@ class KMISCoarsening(MessagePassing):
 
         return None
 
-    def _get_rank(self, x: OptTensor, adj: Adj) -> OptTensor:
-        if self.ordering is None:
-            return None
-
-        return self.ordering(x, adj)
-
     def get_coarsening_matrix(self, adj: SparseTensor, x: OptTensor = None) \
             -> Tuple[OptPairSparseTensor, Tensor]:
-        rank = self._get_rank(x, adj)
+        rank = self.ordering(x, adj)
         c_mat, mis = get_coarsening_matrix(adj, self.k, self.eps, rank)
 
         if self.sample_partition:
