@@ -1,56 +1,25 @@
 from typing import Callable, Tuple, Union, Optional
 
 import torch
-
-from torch_geometric.typing import Adj, Tensor, OptTensor, Size, OptPairTensor
-from torch_geometric.nn.conv import MessagePassing
+from torch_geometric.typing import Adj, Tensor, OptTensor
 from torch_sparse import SparseTensor
-from torch_scatter import scatter_min
+from torch_scatter import scatter_min, scatter
 
-from kmis import orderings, sample, utils
+from kmis import orderings, sample
 
-OptPairSparseTensor = Union[SparseTensor, Tuple[SparseTensor, SparseTensor]]
-OptOrdering = Callable[[Tensor, SparseTensor], OptTensor]
-
-
-def get_coarsening_matrix(adj: SparseTensor, k: int = 1, eps: float = 0.5,
-                          rank: OptTensor = None) -> Tuple[SparseTensor, Tensor]:
-    mis = sample.maximal_k_independent_set(adj, k, rank)
-    rw = utils.normalize_dim(adj)
-    
-    if eps > 0.:
-        val = (1 - eps) * rw.storage.value()
-        rw = rw.set_value(val, layout="coo")
-        diag = rw.get_diag() + eps
-        rw = rw.set_diag(diag)
-    
-    c_mat = rw.eye(adj.size(0), device=adj.device())[mis]
-    
-    for _ in range(k):
-        c_mat = c_mat @ rw
-    
-    return utils.normalize_dim(c_mat.t()), mis
+Ordering = Callable[[Tensor, SparseTensor], Tensor]
+Scoring = Callable[[Tensor], OptTensor]
 
 
-def sample_partition_matrix(c_mat: SparseTensor) -> SparseTensor:
-    cluster = sample.sample_multinomial(c_mat)
-    n, s = c_mat.sparse_sizes()
-    device = c_mat.device()
-    return SparseTensor(row=torch.arange(n, dtype=torch.long, device=device),
-                        col=cluster,
-                        value=torch.ones_like(cluster, dtype=torch.float),
-                        sparse_sizes=(n, s), is_sorted=True)
-
-
+@torch.no_grad()
 @torch.jit.script
-def cluster_k_mis(adj: SparseTensor, k: int = 1, rank: OptTensor = None) -> Tuple[Tensor, Tensor]:
-    n, device = adj.size(0), adj.device()
+def cluster_k_mis(mis: Tensor, adj: SparseTensor, k: int = 1, rank: OptTensor = None) -> Tensor:
+    n, device = mis.size(0), mis.device
     row, col, val = adj.coo()
-
+    
     if rank is None:
         rank = torch.arange(n, dtype=torch.long, device=device)
 
-    mis = sample.maximal_k_independent_set(adj, k, rank)
     min_rank = torch.full((n,), fill_value=n, dtype=torch.long, device=device)
     min_rank[mis] = rank[mis]
 
@@ -58,131 +27,90 @@ def cluster_k_mis(adj: SparseTensor, k: int = 1, rank: OptTensor = None) -> Tupl
         scatter_min(min_rank[row], col, out=min_rank)
 
     _, clusters = torch.unique(min_rank, return_inverse=True)
-    return clusters, mis
+    return clusters
 
 
-class KMISCoarsening(MessagePassing):
-    propagate_type = {'x': Tensor}
-    
+class KMISPool(torch.nn.Module):
     def __init__(self, k: int = 1,
-                 ordering: Optional[Union[OptOrdering, str]] = 'random',
-                 eps: float = 0.5,
-                 sample_partition: Union[bool, str] = 'on_train',
-                 sample_aggregate: bool = False, **kwargs):
-        kwargs.setdefault('aggr', 'add')
-        super(KMISCoarsening, self).__init__(**kwargs)
-
-        self.k = k
-        self.eps = eps
-        self.sample_partition = sample_partition
-        self.sample_aggregate = sample_aggregate
-
+                 scorer: Optional[Union[Scoring, str]] = 'random',
+                 adaptive: Union[bool, str] = 'infer',
+                 ordering: Optional[Union[Ordering, str]] = 'greedy',
+                 reduce_x: Optional[str] = None,
+                 reduce_edge: Optional[str] = 'sum',
+                 remove_self_loops: bool = True):
+        super(KMISPool, self).__init__()
+        
         if ordering is None:
-            self.ordering: OptOrdering = lambda x, adj: None
+            ordering = orderings.Greedy()
         elif isinstance(ordering, str):
-            self.ordering = orderings.get_ordering(ordering, k=k, normalization='rw')
-        else:
-            self.ordering = ordering
-
-    @property
-    def sample_partition(self):
-        if self.training:
-            return self._sample_on_train
-        return self._sample_on_valid
-
-    @sample_partition.setter
-    def sample_partition(self, sample_partition):
-        self._sample_on_train = sample_partition in {True, 'on_train'}
-        self._sample_on_valid = sample_partition == True  # noqa
-        self._return_pair = self._sample_on_train or self._sample_on_valid
-
-    def pool(self, c_mat: SparseTensor, x: OptTensor) -> OptTensor:
-        if x is None:
-            return None
-        
-        l_mat = utils.normalize_dim(c_mat.t(), -1)
-        return self.propagate(l_mat, x=x)
-
-    def coarsen(self, c_mat: Union[Tensor, SparseTensor], adj: SparseTensor) -> Union[Tensor, SparseTensor]:
-        out = c_mat.t() @ (adj @ c_mat)
-
-        if self.sample_partition or not self._sample_on_train:
-            return out
-
-        diag = adj.get_diag().unsqueeze(-1)
-
-        if torch.all(diag == 0.):
-            return out
-
-        n, s, device = adj.size(0), out.size(0), adj.device()
-        sigma = c_mat.t() @ (utils.get_diagonal_matrix(-diag) @ c_mat)
-        sigma_diag = utils.get_diagonal_matrix(c_mat.t() @ diag)
-
-        rows, cols, values = tuple(zip(out.coo(), sigma.coo(), sigma_diag.coo()))
-        return SparseTensor(row=torch.cat(rows),
-                            col=torch.cat(cols),
-                            value=torch.cat(values),
-                            sparse_sizes=(s, s)).coalesce('sum')
-
-    @staticmethod
-    def _maybe_size(x: OptTensor = None, batch: OptTensor = None) -> Optional[Size]:
-        for t in (x, batch):
-            if t is not None:
-                n = t.size(0)
-                return n, n
-
-        return None
-
-    def get_coarsening_matrix(self, adj: SparseTensor, x: OptTensor = None) \
-            -> Tuple[OptPairSparseTensor, Tensor]:
-        rank = self.ordering(x, adj)
-        c_mat, mis = get_coarsening_matrix(adj, self.k, self.eps, rank)
-
-        if self.sample_partition:
-            p_mat = sample_partition_matrix(c_mat)
-            return (c_mat, p_mat), mis
-        
-        if self._return_pair:
-            return (c_mat, c_mat), mis
-
-        return c_mat, mis
-
-    def forward(self, x: Union[OptTensor, OptPairTensor],
-                edge_index: Adj, edge_attr: OptTensor = None,
-                batch: OptTensor = None) -> Tuple[Union[OptTensor, OptPairTensor], SparseTensor,
-                                                  OptTensor, Tensor, OptPairSparseTensor]:
-        adj = edge_index
-        rank, rank_cut = x, -1
-        
-        if isinstance(x, tuple):
-            rank, x = x
-            rank_cut = rank.size(1)
-            x = torch.cat([rank, x], dim=-1)
-
-        if isinstance(adj, Tensor):
-            size = self._maybe_size(x, batch)
-            adj = SparseTensor.from_edge_index(edge_index, edge_attr, size)
-
-        out_mat, mis = self.get_coarsening_matrix(adj, rank)
-        
-        if self._return_pair:
-            c_mat, p_mat = out_mat
-
-            if self.sample_aggregate:
-                c_mat = p_mat
-        else:
-            c_mat = p_mat = out_mat
+            ordering = ''.join(t.title() for t in ordering.split('-'))
             
-        out_adj = self.coarsen(p_mat, adj)
-        out_x = self.pool(c_mat, x)
+            if ordering == 'Greedy':
+                ordering = orderings.Greedy()
+            else:
+                ordering_cls = getattr(orderings, ordering)
+                ordering = ordering_cls(k=k)
+                
+        if scorer is None:
+            scorer: Scoring = lambda x: torch.arange(x.size(0), device=x.device, dtype=x.dtype)
+        elif isinstance(scorer, str):
+            if scorer == 'random':
+                scorer: Scoring = lambda x: torch.rand_like(x)
+            else:
+                scoring_fun = getattr(torch, scorer)
+                scorer: Scoring = lambda x: scoring_fun(x, dim=-1)
+                
+        if adaptive == 'infer':
+            self.adaptive = isinstance(scorer, torch.nn.Module)
+        
+        self.k = k
+        self.ordering = ordering
+        self.scorer = scorer
+        self.reduce_edge = reduce_edge
+        self.reduce_x = reduce_x
+        self.remove_self_loops = remove_self_loops
+        
+        if adaptive == 'infer':
+            self.adaptive = isinstance(scorer, torch.nn.Module)
+        else:
+            self.adaptive = adaptive
+
+    def forward(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None,
+                batch: OptTensor = None) -> Tuple[Tensor, Adj, OptTensor, OptTensor]:
+        adj, n = edge_index, x.size(0)
+        
+        if torch.is_tensor(edge_index):
+            adj = SparseTensor.from_edge_index(edge_index, edge_attr, (n, n))
+
+        score = self.scorer(x)
+        rank = self.ordering(score, adj)
+        mis = sample.maximal_k_independent_set(adj, self.k, rank)
+        cluster = cluster_k_mis(mis, adj, self.k, rank)
+        
+        row, col, val = adj.coo()
+        c = mis.sum()
+        
+        adj = SparseTensor(row=cluster[row], col=cluster[col],
+                           val=val, size=(c, c)).coalesce(self.reduce_edge)
+        
+        if self.remove_self_loops:
+            adj = adj.remove_diag()
+        
+        if torch.is_tensor(edge_index):
+            row, col, edge_attr = adj.coo()
+            edge_index = torch.stack([row, col])
+        else:
+            edge_index, edge_attr = adj, None
+        
+        if self.adaptive:
+            x = x*score
+        
+        if self.reduce_x is None:
+            x = x[mis]
+        else:
+            x = scatter(x, cluster, dim=0, dim_size=c, reduce=self.reduce_x)
         
         if batch is not None:
             batch = batch[mis]
-            
-        if rank_cut >= 0:
-            out_x = (out_x[:, :rank_cut], out_x[:, rank_cut:])
         
-        return out_x, out_adj, batch, mis, out_mat
-    
-    def message_and_aggregate(self, adj_t: SparseTensor, x: Tensor) -> Tensor:  # noqa
-        return adj_t.matmul(x, reduce=self.aggr)
+        return x, edge_index, edge_attr, batch

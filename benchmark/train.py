@@ -4,15 +4,17 @@ import logging
 import torch
 
 from torch_geometric.data import DataLoader
-from torch_geometric.datasets import GNNBenchmarkDataset
+from torch_geometric.datasets import TUDataset
+from torch_geometric.transforms import Constant
 
 from skorch import NeuralNetClassifier
-from skorch.callbacks import LRScheduler, ProgressBar, Checkpoint, EpochScoring
-from skorch.helper import predefined_split
+from skorch.callbacks import LRScheduler, ProgressBar, Checkpoint, EpochScoring, EarlyStopping
+from skorch.dataset import CVSplit
+
+from sklearn.model_selection import cross_val_score, GridSearchCV
 
 from benchmark import utils
 from benchmark import models
-from benchmark.callbacks import LateStopping, LRLowerBound
 
 
 utils.fix_skorch()
@@ -32,9 +34,7 @@ DEFAULT_NET_PARAMS = {
         ('progress_bar', ProgressBar),
         ('train_acc', EpochScoring),
         ('checkpoint', Checkpoint),
-        ('late_stopping', LateStopping),
         ('lr_scheduler', LRScheduler),
-        ('lr_lower_bound', LRLowerBound),
     ],
     'callbacks__train_acc__scoring': 'accuracy',
     'callbacks__train_acc__lower_is_better': False,
@@ -60,20 +60,20 @@ DEFAULT_NET_PARAMS = {
 }
 
 
-def train(model: str = 'GNN',
-          dataset: str = 'MNIST',
-          root: str = './dataset/',
-          optimizer: str = 'Adam',
-          lr: float = 0.001,
-          batch_size: int = -1,
-          shuffle: bool = True,
-          drop_last: bool = True,
-          num_workers: int = 0,
-          save_params: str = None,
-          save_history: str = None,
-          logging_level: int = logging.INFO,
-          seed: int = 42,
-          **net_kwargs):
+def cross_validate(model: str = 'GNN',
+                   dataset: str = 'DD',
+                   root: str = './dataset/',
+                   optimizer: str = 'Adam',
+                   lr: float = 0.001,
+                   batch_size: int = -1,
+                   shuffle: bool = True,
+                   drop_last: bool = True,
+                   num_workers: int = 0,
+                   save_params: str = None,
+                   save_history: str = None,
+                   logging_level: int = logging.INFO,
+                   seed: int = 42,
+                   **net_kwargs):
     """Train a model on a GNNBenchmark Dataset.
     Args:
         model (str, optional): The model to train. Defaults to 'GNN'.
@@ -105,17 +105,18 @@ def train(model: str = 'GNN',
 
     dataset = dataset.upper()
     logging.info(f'Loading {dataset} Dataset')
-    train_dataset = GNNBenchmarkDataset(root=root, name=dataset, split='train')
-    valid_dataset = GNNBenchmarkDataset(root=root, name=dataset, split='val')
+    dataset = TUDataset(root=root, name=dataset)
+    
+    if dataset.num_node_features == 0:
+        dataset.transform = Constant()
 
     opts.update({
         'module': getattr(models, model),
-        'module__dataset': train_dataset,
-        'module__node_level': dataset in {'CLUSTER', 'PATTERN'},
+        'module__dataset': dataset,
         'lr': lr,
         'batch_size': batch_size,
         'optimizer': getattr(torch.optim, optimizer),
-        'train_split': predefined_split(valid_dataset),
+        'train_split': CVSplit(9, stratified=True, random_state=seed),
         'criterion': torch.nn.CrossEntropyLoss,
         'iterator_train__num_workers': num_workers,
         'iterator_valid__num_workers': num_workers,
@@ -123,7 +124,7 @@ def train(model: str = 'GNN',
         'iterator_train__drop_last': drop_last,
         'callbacks__checkpoint__f_params': save_params,
         'callbacks__checkpoint__f_history': save_history,
-        'dataset__length': len(train_dataset),
+        'dataset__length': len(dataset),
     })
 
     logging.debug(f'Setting random seed to {seed}')
@@ -137,40 +138,5 @@ def train(model: str = 'GNN',
     logging.debug('Configuration:\n\n%s\n', config)
     logging.debug('Network architecture:\n\n%s\n', str(net))
     logging.info('Starting training\n')
-    net.partial_fit(train_dataset)
+    net.partial_fit(dataset)
 
-
-def score(model: str = 'GNN',
-          dataset: str = 'MNIST',
-          root: str = './dataset/',
-          params_path: str = 'params.pt',
-          batch_size: int = -1,
-          num_workers: int = 0,
-          logging_level: int = logging.INFO,
-          **net_kwargs):
-    opts = dict(DEFAULT_NET_PARAMS)
-    logging.basicConfig(format='%(levelname)s: %(message)s', level=logging_level)
-
-    dataset = dataset.upper()
-    logging.info(f'Loading {dataset} Dataset')
-    test_dataset = GNNBenchmarkDataset(root=root, name=dataset, split='test')
-
-    opts.update({
-        'module': getattr(models, model),
-        'module__dataset': test_dataset,
-        'module__node_level': dataset in {'CLUSTER', 'PATTERN'},
-        'batch_size': batch_size,
-        'iterator_valid__num_workers': num_workers,
-        'dataset__length': len(test_dataset),
-    })
-
-    logging.info('Initializing NeuralNet')
-    opts.update(net_kwargs)
-    net = NeuralNetClassifier(**opts).initialize()
-    net.load_params(f_params=params_path)
-
-    config = '\n'.join([f'{f"{k} ".ljust(50, ".")} {v}' for k, v in opts.items()])
-    logging.debug('Configuration:\n\n%s\n', config)
-    logging.debug('Network architecture:\n\n%s\n', str(net))
-    logging.info('Starting inference\n')
-    return net.score(test_dataset, test_dataset.data.y)
