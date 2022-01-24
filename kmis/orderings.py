@@ -7,7 +7,7 @@ from torch_scatter import scatter_add
 
 
 def get_ranking(value: Tensor, descending: bool = True) -> Tensor:
-    perm = torch.argsort(value, 0, descending)
+    perm = torch.argsort(value.view(-1), 0, descending)
     rank = torch.zeros_like(perm)
     rank[perm] = torch.arange(rank.size(0), dtype=torch.long, device=rank.device)
     
