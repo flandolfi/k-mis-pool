@@ -17,21 +17,25 @@ Scoring = Callable[[Tensor], OptTensor]
 def cluster_k_mis(mis: Tensor, adj: SparseTensor, k: int = 1, rank: OptTensor = None) -> Tensor:
     n, device = mis.size(0), mis.device
     row, col, val = adj.coo()
-    
+
     if rank is None:
         rank = torch.arange(n, dtype=torch.long, device=device)
 
     min_rank = torch.full((n,), fill_value=n, dtype=torch.long, device=device)
-    min_rank[mis] = rank[mis]
+    rank_mis = rank[mis]
+    min_rank[mis] = rank_mis
 
     for _ in range(k):
-        scatter_min(min_rank[row], col, out=min_rank)
+        min_neigh = torch.full_like(min_rank, fill_value=n)
+        scatter_min(min_rank[row], col, out=min_neigh)
+        torch.minimum(min_neigh, min_rank, out=min_rank)
 
     _, clusters = torch.unique(min_rank, return_inverse=True)
-    return clusters
+    perm = torch.argsort(rank_mis)
+    return perm[clusters]
 
 
-class KMISPool(Module):
+class KMISPooling(Module):
     def __init__(self, in_channels: Optional[int] = None,
                  k: int = 1,
                  scorer: Optional[Union[Scoring, str]] = 'random',
@@ -40,7 +44,7 @@ class KMISPool(Module):
                  reduce_x: Optional[str] = None,
                  reduce_edge: Optional[str] = 'sum',
                  remove_self_loops: bool = True):
-        super(KMISPool, self).__init__()
+        super(KMISPooling, self).__init__()
         
         if ordering is None:
             ordering = orderings.Greedy()
@@ -87,9 +91,10 @@ class KMISPool(Module):
         self.adaptive = adaptive
 
     def forward(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None,
-                batch: OptTensor = None) -> Tuple[Tensor, Adj, OptTensor, OptTensor]:
+                batch: OptTensor = None) -> Tuple[Tensor, Adj, OptTensor, OptTensor,
+                                                  Tensor, Tensor, Tensor]:
         adj, n = edge_index, x.size(0)
-        
+
         if torch.is_tensor(edge_index):
             adj = SparseTensor.from_edge_index(edge_index, edge_attr, (n, n))
 
@@ -100,10 +105,14 @@ class KMISPool(Module):
         
         row, col, val = adj.coo()
         c = mis.sum()
-        
+
+        if val is None:
+            val = torch.ones_like(row, dtype=torch.float)
+
         adj = SparseTensor(row=cluster[row], col=cluster[col],
-                           value=val, sparse_sizes=(c, c)).coalesce(self.reduce_edge)
-        
+                           value=val, is_sorted=False,
+                           sparse_sizes=(c, c)).coalesce(self.reduce_edge)
+
         if self.remove_self_loops:
             adj = adj.remove_diag()
         
@@ -114,14 +123,14 @@ class KMISPool(Module):
             edge_index, edge_attr = adj, None
         
         if self.adaptive:
-            x = x*score
+            x = x*score.view(-1, 1)
         
         if self.reduce_x is None:
             x = x[mis]
         else:
             x = scatter(x, cluster, dim=0, dim_size=c, reduce=self.reduce_x)
-        
+
         if batch is not None:
             batch = batch[mis]
         
-        return x, edge_index, edge_attr, batch
+        return x, edge_index, edge_attr, batch, cluster, mis, score

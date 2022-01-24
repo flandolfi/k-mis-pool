@@ -19,13 +19,17 @@ def maximal_k_independent_set(adj: SparseTensor, k: int = 1, rank: OptTensor = N
     
     while not mask.all():
         for _ in range(k):
-            scatter_min(min_rank[row], col, out=min_rank)
+            min_neigh = torch.full_like(min_rank, fill_value=n)
+            scatter_min(min_rank[row], col, out=min_neigh)
+            torch.minimum(min_neigh, min_rank, out=min_rank)  # self-loops
         
         mis = mis | torch.eq(rank, min_rank)
-        mask = mis.byte()
+        mask = mis.clone().byte()
         
         for _ in range(k):
-            scatter_max(mask[row], col, out=mask)
+            max_neigh = torch.full_like(mask, fill_value=0)
+            scatter_max(mask[row], col, out=max_neigh)
+            torch.maximum(max_neigh, mask, out=mask)  # self-loops
         
         mask = mask.to(dtype=torch.bool)
         min_rank = rank.clone()
