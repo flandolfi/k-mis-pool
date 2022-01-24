@@ -1,6 +1,7 @@
 from typing import Union, Optional
 import warnings
 import logging
+import math
 import os
 
 from torch_geometric.data.lightning_datamodule import LightningDataset
@@ -127,7 +128,7 @@ def grid_search(model: str = 'Baseline',
     def _train_partial(config):
         train(model, dataset, root, config,
               num_workers=cpu_per_trial, test=False,
-              seed=seed, gpus=gpu_per_trial,
+              seed=seed, gpus=math.ceil(gpu_per_trial),
               progress_bar_refresh_rate=0,
               callbacks=[
                   TuneReportCheckpointCallback({
@@ -162,7 +163,7 @@ def grid_search(model: str = 'Baseline',
     for test_seed in range(int(refit)):
         metric_list = train(model=model, dataset=dataset, root=root,
                             config=analysis.best_config, num_workers=cpu_per_trial,
-                            gpus=gpu_per_trial, test=True, seed=test_seed)
+                            gpus=math.ceil(gpu_per_trial), test=True, seed=test_seed)
         results.append(metric_list[0])
 
     df = pd.DataFrame.from_records(results)
