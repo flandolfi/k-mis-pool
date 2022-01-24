@@ -1,205 +1,144 @@
+from typing import Union, Callable, Optional
+
 import torch
-from torch import nn
-from torch.nn import functional as F
 
+from torch_geometric.nn import Sequential, conv, pool
+from torch_geometric.nn.glob import global_mean_pool
+from torch_geometric.nn.models import MLP
 from torch_geometric.data import Dataset
-from torch_geometric.nn import conv, glob, Sequential
-from torch_geometric.typing import SparseTensor, Tensor, OptPairTensor
-from torch_geometric.datasets import GNNBenchmarkDataset
 
-from kmis import KMISCoarsening
+from pytorch_lightning import LightningModule
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 
 
-class MLP(nn.Sequential):
-    def __init__(self, *hidden, dropout=0., batch_norm=False):
-        modules = []
-
-        for ch_in, ch_out in zip(hidden[:-1], hidden[1:]):
-            if not dropout:
-                modules.append(nn.Dropout(dropout))
-
-            modules.append(nn.Linear(ch_in, ch_out))
-
-            if batch_norm:
-                modules.append(nn.BatchNorm1d(ch_out))
-
-            modules.append(nn.ReLU())
-
-        super(MLP, self).__init__(*modules[:-1])
-
-
-class GNN(nn.Module):
-    def __init__(self, dataset: Dataset, gnn="GCNConv",
-                 hidden=146, num_layers=4, blocks=1,
-                 node_level=False, readout=False,
-                 k=1, ordering='random', eps=0.5,
-                 sample_partition='on_train',
-                 sample_aggregate=False,
-                 **gnn_kwargs):
-        super(GNN, self).__init__()
-
-        pos = dataset[0].pos
-        pos_dim = 0 if pos is None else pos.size(1)
-        in_dim = dataset.num_node_features + pos_dim
-        out_dim = 0
-
-        self.num_blocks = blocks
-        self.lin_in = nn.Linear(in_dim, hidden)
-        self.pool = KMISCoarsening(k=k, ordering=ordering, eps=eps,
-                                   sample_partition=sample_partition)
-        self.ordering = self.pool.ordering
-        self.pool.ordering = None
-        self.readout = readout
-        self.node_level = node_level
-
-        if isinstance(gnn, str):
-            gnn = getattr(conv, gnn)
-
-        self.blocks = nn.ModuleList()
-
-        if gnn in {conv.GCNConv, conv.ChebConv}:
-            signature = 'x, edge_index, edge_attr -> x'
-        else:
-            signature = 'x, edge_index -> x'
-
-        for b in range(blocks):
-            gnn_layers = []
-
-            for _ in range(num_layers):
-                gnn_layers.extend([
-                    (gnn(hidden, hidden, **gnn_kwargs), signature),  # noqa
-                    nn.BatchNorm1d(hidden),
-                    nn.ReLU()
-                ])
-
-            block = Sequential('x, edge_index, edge_attr', gnn_layers)
-
-            if b == 0:
-                self.in_block = block
-            else:
-                self.blocks.append(block)
-
-            if readout or b == blocks - 1:
-                out_dim += hidden
-
-        self.lin_out = nn.Sequential(
-            nn.ReLU(),
-            MLP(out_dim, hidden // 2, hidden // 4, dataset.num_classes)
-        )
-
-    def forward(self, data):
-        x, pos, batch, n, b = data.x, data.pos, data.batch, data.num_nodes, data.num_graphs
-        edge_index, edge_attr = data.edge_index, data.edge_attr
-
-        if edge_attr is None:
-            edge_attr = torch.ones_like(edge_index[0], dtype=torch.float)
-
-        if pos is not None:
-            x = torch.cat([x, pos], dim=-1)
-
-        adj = SparseTensor.from_edge_index(edge_index, edge_attr, sparse_sizes=(n, n))
-
-        rank = self.ordering(x, adj)
-        self.pool.ordering = lambda *args, **kwargs: rank
-
-        xs = []
-        c_mats = []
-
-        x = self.lin_in(x)
-        out = x = self.in_block(x, edge_index, edge_attr)
-
-        for i, block in enumerate(self.blocks):
-            if self.node_level:
-                xs.append(out)
-            elif self.readout:
-                xs.append(glob.global_mean_pool(out, batch, b))
-
-            x, edge_index, batch, mis, (c_mat, p_mat) = self.pool(x, edge_index, edge_attr, batch)
-            _, rank = torch.unique(rank[mis], sorted=True, return_inverse=True)
-
-            row, col, edge_attr = edge_index.coo()
-            edge_index = torch.stack([row, col])
-            out = x = block(x, edge_index, edge_attr)
-
-            if self.node_level:
-                c_mats.append(c_mat)
-
-                for m in c_mats[::-1]:
-                    out = m @ out
-
-        if self.node_level:
-            xs.append(out)
-        else:
-            xs.append(glob.global_mean_pool(out, batch, b))
-
-        if self.readout:
-            out = torch.cat(xs, dim=-1)
-        elif self.node_level:
-            out = sum(xs)
-        else:
-            out = xs[-1]
-
-        return self.lin_out(out)
-
-
-class GCN(GNN):
-    def __init__(self, *args, **kwargs):
-        super(GCN, self).__init__(gnn="GCNConv", *args, **kwargs)
-
-
-class ChebNet(GNN):
-    def __init__(self, dataset, hidden=107, K=2, normalization="sym", *args, **kwargs):
-        super(ChebNet, self).__init__(dataset, gnn="ChebConv", hidden=hidden, 
-                                      K=K, normalization=normalization, *args, **kwargs)
-
-
-class GraphSAGEConv(conv.SAGEConv):
-    def __init__(self, in_channels, out_channels, *args, **kwargs):
-        super(GraphSAGEConv, self).__init__(in_channels, out_channels, *args, **kwargs)
-        self.aggr = "max"
-        self.pool_lin = nn.Linear(in_channels, in_channels)
-        self.fuse = False
-
-    def message(self, x_j: torch.Tensor) -> torch.Tensor:
-        return F.relu(self.pool_lin(x_j))
-
-    def message_and_aggregate(self, adj_t: SparseTensor, x: OptPairTensor) -> Tensor:
-        return NotImplemented
-
-
-class GraphSAGE(GNN):
-    def __init__(self, dataset, hidden=90, *args, **kwargs):
-        super(GraphSAGE, self).__init__(dataset, gnn=GraphSAGEConv, hidden=hidden, *args, **kwargs)  # noqa
-
-
-def partial_class(cls, *args, **kwargs):
-    class Wrapper(cls):
-        def __init__(self, *opts, **kwopts):
-            super(Wrapper, self).__init__(*args, *opts, **kwargs, **kwopts)
+class Baseline(LightningModule):
+    known_signatures = {
+        'GCNConv': 'x, e_i, e_w -> x',
+        'GATConv': 'x, e_i, e_w -> x',
+        'GATv2Conv': 'x, e_i, e_w -> x',
+        'SAGEConv': 'x, e_i -> x',
+        'GraphConv': 'x, e_i, e_w -> x',
+        'SGConv': 'x, e_i, e_w -> x',
+        'ChebConv': 'x, e_i, e_w -> x',
+        'LEConv': 'x, e_i, e_w -> x',
+        'GINConv': 'x, e_i -> x',
+        'PANConv': 'x, e_i -> x, M',
+        'TopKPooling': 'x, e_i, e_w, b -> x, e_i, e_w, b, perm, score',
+        'SAGPooling': 'x, e_i, e_w, b -> x, e_i, e_w, b, perm, score',
+        'ASAPooling': 'x, e_i, e_w, b -> x, e_i, e_w, b, perm',
+        'PANPooling': 'x, M, b -> x, e_i, e_w, b, perm, score',
+    }
     
-    return Wrapper
+    requires_nn = {
+        'GINConv',
+        'GINEConv',
+    }
+    
+    def __init__(self, dataset: Dataset,
+                 lr: float = 0.001,
+                 patience: int = 20,
+                 channels: int = 64,
+                 channel_multiplier: int = 1,
+                 num_layers: int = 3,
+                 gnn_class: Union[str, Callable] = 'GCNConv',
+                 gnn_signature: Optional[str] = None,
+                 gnn_kwargs: Optional[dict] = None,
+                 pool_class: Optional[Union[str, Callable]] = None,
+                 pool_signature: Optional[str] = None,
+                 pool_kwargs: Optional[dict] = None):
+        super(Baseline, self).__init__()
+        
+        if isinstance(gnn_class, str):
+            gnn_class = getattr(conv, gnn_class)
+            
+        if gnn_class.__name__ in self.requires_nn:
+            _gnn_cls = gnn_class
+            
+            def gnn_class(in_channels, out_channels, **kwargs):
+                return _gnn_cls(nn=MLP([in_channels, in_channels, out_channels],
+                                       batch_norm=False), **kwargs)
 
+        if gnn_kwargs is None:
+            gnn_kwargs = {}
+            
+        if gnn_signature is None:
+            gnn_signature = self.known_signatures.get(gnn_class.__name__,
+                                                      'x, e_i -> x')
+            
+        if isinstance(pool_class, str):
+            pool_class = getattr(pool, pool_class)
+        
+        if pool_kwargs is None:
+            pool_kwargs = {}
+            
+        if pool_class is not None and pool_signature is None:
+            pool_signature = self.known_signatures.get(pool_class.__name__,
+                                                       'x, e_i, e_w, b -> x, e_i, e_w, b')
+        
+        in_channels = dataset.num_node_features or 1
+        out_channels = channels
+        
+        layers = []
+        
+        for l_id in range(num_layers):
+            layers.append((gnn_class(in_channels=in_channels, out_channels=channels, **gnn_kwargs), gnn_signature))
+            
+            if l_id == num_layers - 1:
+                layers.append((global_mean_pool, 'x, b -> x'))
+            elif pool_class is not None:
+                layers.append((pool_class(in_channels=channels, **pool_kwargs), pool_signature))
+                
+            layers.append((torch.nn.ReLU(), 'x -> x'))
+            
+            in_channels = channels
+            channels *= channel_multiplier
+            
+        layers.append((MLP([in_channels, in_channels//2, out_channels], dropout=0.5), 'x -> x'))
+        self.model = Sequential('x, e_i, e_w, b', layers)
+        
+        self.loss = torch.nn.CrossEntropyLoss()
+        self.patience = patience
+        self.lr = lr
+        
+    @staticmethod
+    def accuracy(y_pred, y_true):
+        y_class = torch.argmax(y_pred, dim=-1)
+        return torch.mean(torch.eq(y_class, y_true).float())
+        
+    def forward(self, x, edge_index, edge_attr=None, batch=None):
+        return self.model(x, edge_index, edge_attr, batch)
 
-def count_params(model: str = 'GCN', dataset: str = 'MNIST',
-                 root: str = './dataset/', **net_kwargs):
-    dataset = GNNBenchmarkDataset(root, dataset)
-    net = globals()[model](dataset, **net_kwargs)
+    def training_step(self, data, batch_idx):
+        y_hat = self(data.x, data.edge_index, data.edge_attr, data.batch)
+        loss = self.loss(y_hat, data.y)
+        self.log('train_loss', loss, prog_bar=True, on_step=False,
+                 on_epoch=True, batch_size=y_hat.size(0))
+        return loss
 
-    return sum(p.numel() for p in net.parameters() if p.requires_grad)
+    def validation_step(self, data, batch_idx):
+        y_hat = self(data.x, data.edge_index, data.edge_attr, data.batch)
+        loss = self.loss(y_hat, data.y)
+        acc = self.accuracy(y_hat, data.y)
+        self.log('val_loss', loss, prog_bar=True, on_step=False,
+                 on_epoch=True, batch_size=y_hat.size(0))
+        self.log('val_acc', acc, prog_bar=True, on_step=False,
+                 on_epoch=True, batch_size=y_hat.size(0))
+        return {
+            'val_loss': loss,
+            'val_acc': acc,
+        }
 
+    def test_step(self, data, batch_idx):
+        y_hat = self(data.x, data.edge_index, data.edge_attr, data.batch)
+        acc = self.accuracy(y_hat, data.y)
+        self.log('test_acc', acc, prog_bar=True, on_step=False,
+                 on_epoch=True, batch_size=y_hat.size(0))
 
-GCN_4 = GCN
-GraphSAGE_4 = GraphSAGE
-ChebNet_4 = ChebNet
-
-GCN_22 = partial_class(GCN, num_layers=2, blocks=2)
-GraphSAGE_22 = partial_class(GraphSAGE, num_layers=2, blocks=2)
-ChebNet_22 = partial_class(ChebNet, num_layers=2, blocks=2)
-
-GCN_8 = partial_class(GCN, hidden=106, num_layers=8)
-GraphSAGE_8 = partial_class(GraphSAGE, hidden=63, num_layers=8)
-ChebNet_8 = partial_class(ChebNet, hidden=77, num_layers=8)
-
-GCN_44 = partial_class(GCN, hidden=106, blocks=2)
-GraphSAGE_44 = partial_class(GraphSAGE, hidden=63, blocks=2)
-ChebNet_44 = partial_class(ChebNet, hidden=77, blocks=2)
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=self.lr)
+    
+    def configure_callbacks(self):
+        early_stop = EarlyStopping(monitor="val_loss", mode="min",
+                                   patience=self.patience)
+        checkpoint = ModelCheckpoint(monitor="val_acc", mode="max")
+        return [early_stop, checkpoint]
