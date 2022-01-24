@@ -4,11 +4,14 @@ import torch
 
 from torch_geometric.nn import Sequential, conv, pool
 from torch_geometric.nn.glob import global_mean_pool
+from torch_geometric.nn.pool import TopKPooling, SAGPooling, ASAPooling, PANPooling
 from torch_geometric.nn.models import MLP
-from torch_geometric.data import Dataset
+from torch_geometric.data import InMemoryDataset, Data
 
 from pytorch_lightning import LightningModule
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+
+from kmis import KMISPooling
 
 
 class Baseline(LightningModule):
@@ -27,6 +30,7 @@ class Baseline(LightningModule):
         'SAGPooling': 'x, e_i, e_w, b -> x, e_i, e_w, b, perm, score',
         'ASAPooling': 'x, e_i, e_w, b -> x, e_i, e_w, b, perm',
         'PANPooling': 'x, M, b -> x, e_i, e_w, b, perm, score',
+        'KMISPooling': 'x, e_i, e_w, b -> x, e_i, e_w, b, perm, mis, score',
     }
     
     requires_nn = {
@@ -34,11 +38,11 @@ class Baseline(LightningModule):
         'GINEConv',
     }
     
-    def __init__(self, dataset: Dataset,
+    def __init__(self, dataset: InMemoryDataset,
                  lr: float = 0.001,
                  patience: int = 20,
                  channels: int = 64,
-                 channel_multiplier: int = 1,
+                 channel_multiplier: int = 2,
                  num_layers: int = 3,
                  gnn_class: Union[str, Callable] = 'GCNConv',
                  gnn_signature: Optional[str] = None,
@@ -55,7 +59,7 @@ class Baseline(LightningModule):
             _gnn_cls = gnn_class
             
             def gnn_class(in_channels, out_channels, **kwargs):
-                return _gnn_cls(nn=MLP([in_channels, in_channels, out_channels],
+                return _gnn_cls(nn=MLP([in_channels, out_channels, out_channels],
                                        batch_norm=False), **kwargs)
 
         if gnn_kwargs is None:
@@ -76,7 +80,7 @@ class Baseline(LightningModule):
                                                        'x, e_i, e_w, b -> x, e_i, e_w, b')
         
         in_channels = dataset.num_node_features or 1
-        out_channels = channels
+        out_channels = dataset.num_classes
         
         layers = []
         
@@ -142,3 +146,93 @@ class Baseline(LightningModule):
                                    patience=self.patience)
         checkpoint = ModelCheckpoint(monitor="val_acc", mode="max")
         return [early_stop, checkpoint]
+
+
+class TopKPool(Baseline):
+    def __init__(self, dataset: InMemoryDataset, ratio: float, **kwargs):
+        kwargs['pool_class'] = TopKPooling
+        kwargs['pool_kwargs'] = {'ratio': ratio}
+        super(TopKPool, self).__init__(dataset=dataset, **kwargs)
+
+
+class SAGPool(Baseline):
+    def __init__(self, dataset: InMemoryDataset, ratio: float, **kwargs):
+        # Simulate the "augmentation" variant of
+        # SAGPool paper with a 2-hop SGConv
+        def _gnn_wrap(*gnn_args, **gnn_kwargs):
+            return conv.SGConv(*gnn_args, K=2, **gnn_kwargs)
+
+        kwargs['pool_class'] = SAGPooling
+        kwargs['pool_kwargs'] = {
+            'ratio': ratio,
+            'GNN': _gnn_wrap,
+        }
+
+        super(SAGPool, self).__init__(dataset=dataset, **kwargs)
+
+
+class ASAPool(Baseline):
+    def __init__(self, dataset: InMemoryDataset, ratio: float, **kwargs):
+        kwargs['pool_class'] = ASAPooling
+        kwargs['pool_kwargs'] = {'ratio': ratio}
+        super(ASAPool, self).__init__(dataset=dataset, **kwargs)
+
+
+class PANPool(Baseline):
+    def __init__(self, dataset: InMemoryDataset, ratio: float, filter_size: int, **kwargs):
+        kwargs['gnn_class'] = conv.PANConv
+        kwargs['gnn_kwargs'] = {'filter_size': filter_size}
+        kwargs['pool_class'] = PANPooling
+        kwargs['pool_kwargs'] = {'ratio': ratio}
+        super(PANPool, self).__init__(dataset=dataset, **kwargs)
+
+
+class GraclusPool(Baseline):
+    def __init__(self, dataset: InMemoryDataset, **kwargs):
+        def _graclus_wrap(in_channels=None):
+            def _graclus(x, e_i, e_w, b):
+                cluster = pool.graclus(edge_index=e_i, weight=e_w, num_nodes=x.size(0))
+                data = pool.avg_pool(cluster, Data(x=x, edge_index=e_i, edge_attr=e_w, batch=b))
+                return data.x, data.edge_index, data.edge_weight, data.batch
+
+            return _graclus
+
+        kwargs['pool_class'] = _graclus_wrap
+        kwargs['pool_signature'] = 'x, e_i, e_w, b -> x, e_i, e_w, b'
+
+        super(GraclusPool, self).__init__(dataset=dataset, **kwargs)
+
+
+class KMISPool(Baseline):
+    def __init__(self, dataset: InMemoryDataset, k: int,
+                 scorer: str = 'linear',
+                 ordering: str = 'div-k-sum',
+                 **kwargs):
+        kwargs['pool_class'] = KMISPooling
+        kwargs['pool_kwargs'] = {
+            'k': k,
+            'scorer': scorer,
+            'ordering': ordering,
+        }
+
+        if 'gnn_class' in kwargs:
+            gnn_class = kwargs['gnn_class']
+
+            if gnn_class in {'ChebConv', conv.ChebConv}:
+                kwargs['gnn_kwargs'] = {'K': k + 1}
+            elif gnn_class in {'SGConv', 'TAGConv', conv.SGConv, conv.TAGConv}:
+                kwargs['gnn_kwargs'] = {'K': k}
+
+        super(KMISPool, self).__init__(dataset=dataset, **kwargs)
+
+
+class KMISPoolRandom(KMISPool):
+    def __init__(self, dataset: InMemoryDataset, k: int, **kwargs):
+        super(KMISPoolRandom, self).__init__(dataset=dataset, k=k, scorer='random',
+                                             ordering='greedy', **kwargs)
+
+
+class KMISPoolNorm(KMISPool):
+    def __init__(self, dataset: InMemoryDataset, k: int, **kwargs):
+        super(KMISPoolNorm, self).__init__(dataset=dataset, k=k, scorer='norm', **kwargs)
+
