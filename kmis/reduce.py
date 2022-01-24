@@ -1,6 +1,7 @@
 from typing import Callable, Tuple, Union, Optional
 
 import torch
+from torch.nn import Module, Linear, Sigmoid, Sequential
 from torch_geometric.typing import Adj, Tensor, OptTensor
 from torch_sparse import SparseTensor
 from torch_scatter import scatter_min, scatter
@@ -30,10 +31,11 @@ def cluster_k_mis(mis: Tensor, adj: SparseTensor, k: int = 1, rank: OptTensor = 
     return clusters
 
 
-class KMISPool(torch.nn.Module):
-    def __init__(self, k: int = 1,
+class KMISPool(Module):
+    def __init__(self, in_channels: Optional[int] = None,
+                 k: int = 1,
                  scorer: Optional[Union[Scoring, str]] = 'random',
-                 adaptive: Union[bool, str] = 'infer',
+                 adaptive: Union[str, bool] = 'infer',
                  ordering: Optional[Union[Ordering, str]] = 'greedy',
                  reduce_x: Optional[str] = None,
                  reduce_edge: Optional[str] = 'sum',
@@ -52,16 +54,25 @@ class KMISPool(torch.nn.Module):
                 ordering = ordering_cls(k=k)
                 
         if scorer is None:
-            scorer: Scoring = lambda x: torch.arange(x.size(0), device=x.device, dtype=x.dtype)
+            scorer: Scoring = lambda x: torch.arange(x.size(0), device=x.device)
+        elif scorer == 'linear':
+            assert in_channels is not None, "'in_channel' argument is mandatory for 'linear' scorer."
+            
+            scorer: Scoring = Sequential(Linear(in_channels, 1), Sigmoid())
+            adaptive = True
         elif isinstance(scorer, str):
             if scorer == 'random':
-                scorer: Scoring = lambda x: torch.rand_like(x)
+                scorer: Scoring = lambda x: torch.randperm(x.size(0), device=x.device)
             else:
-                scoring_fun = getattr(torch, scorer)
-                scorer: Scoring = lambda x: scoring_fun(x, dim=-1)
+                _scoring_fun = getattr(torch, scorer)
                 
-        if adaptive == 'infer':
-            self.adaptive = isinstance(scorer, torch.nn.Module)
+                def scorer(x: Tensor):
+                    out = _scoring_fun(x, dim=-1)
+                    
+                    if isinstance(out, tuple):
+                        return out[0]
+                    
+                    return out
         
         self.k = k
         self.ordering = ordering
@@ -71,9 +82,9 @@ class KMISPool(torch.nn.Module):
         self.remove_self_loops = remove_self_loops
         
         if adaptive == 'infer':
-            self.adaptive = isinstance(scorer, torch.nn.Module)
-        else:
-            self.adaptive = adaptive
+            adaptive = isinstance(scorer, Module)
+        
+        self.adaptive = adaptive
 
     def forward(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None,
                 batch: OptTensor = None) -> Tuple[Tensor, Adj, OptTensor, OptTensor]:
@@ -91,7 +102,7 @@ class KMISPool(torch.nn.Module):
         c = mis.sum()
         
         adj = SparseTensor(row=cluster[row], col=cluster[col],
-                           val=val, size=(c, c)).coalesce(self.reduce_edge)
+                           value=val, sparse_sizes=(c, c)).coalesce(self.reduce_edge)
         
         if self.remove_self_loops:
             adj = adj.remove_diag()
