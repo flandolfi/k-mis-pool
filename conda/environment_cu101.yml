@@ -6,9 +6,7 @@ dependencies:
   - python=3.8
   - cudatoolkit=10.1
   - scikit-learn
-  - pytorch-lightning=1.4
   - setuptools=59.5.0
-  - ray-tune
   - numpy
   - pandas
   - fire
@@ -28,3 +26,5 @@ dependencies:
     - torch-scatter
     - torch-cluster
     - torch-geometric
+    - pytorch-lightning==1.4
+    - "ray[tune]"
