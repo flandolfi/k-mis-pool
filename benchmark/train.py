@@ -1,142 +1,146 @@
 import warnings
-import logging
+import os
 
-import torch
-
-from torch_geometric.data import DataLoader
-from torch_geometric.datasets import TUDataset
+from torch_geometric.data.lightning_datamodule import LightningDataset
+from torch_geometric.datasets import TUDataset, MalNetTiny
 from torch_geometric.transforms import Constant
+from torch_geometric import seed_everything
 
-from skorch import NeuralNetClassifier
-from skorch.callbacks import LRScheduler, ProgressBar, Checkpoint, EpochScoring, EarlyStopping
-from skorch.dataset import CVSplit
+import pytorch_lightning as pl
 
-from sklearn.model_selection import cross_val_score, GridSearchCV
+from ray import tune
+from ray.tune import CLIReporter
+from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
 
-from benchmark import utils
+from filelock import FileLock
+
+from sklearn.model_selection import train_test_split
+
 from benchmark import models
 
-
-utils.fix_skorch()
-warnings.filterwarnings("ignore", category=UserWarning)
-
-device = 'cpu'
-
-if torch.cuda.is_available():
-    device = 'cuda'
-
-DEFAULT_NET_PARAMS = {
-    'max_epochs': 9999999999,
-    'verbose': 1,
-    'device': device,
-    'criterion': torch.nn.CrossEntropyLoss,
-    'callbacks': [
-        ('progress_bar', ProgressBar),
-        ('train_acc', EpochScoring),
-        ('checkpoint', Checkpoint),
-        ('lr_scheduler', LRScheduler),
-    ],
-    'callbacks__train_acc__scoring': 'accuracy',
-    'callbacks__train_acc__lower_is_better': False,
-    'callbacks__train_acc__on_train': True,
-    'callbacks__train_acc__name': 'train_acc',
-    'callbacks__late_stopping__hours': 12,
-    'callbacks__lr_scheduler__policy': 'ReduceLROnPlateau',
-    'callbacks__lr_scheduler__monitor': 'valid_loss',
-    'callbacks__lr_scheduler__verbose': False,
-    'callbacks__lr_scheduler__factor': 0.5,
-    'callbacks__lr_scheduler__patience': 10,
-    'callbacks__lr_lower_bound__min_lr': 1e-5,
-    'callbacks__checkpoint__monitor': 'valid_acc_best',
-    'callbacks__checkpoint__f_params': None,
-    'callbacks__checkpoint__f_optimizer': None,
-    'callbacks__checkpoint__f_criterion': None,
-    'callbacks__checkpoint__f_history': None,
-    'callbacks__checkpoint__f_pickle': None,
-    'iterator_train': DataLoader,
-    'iterator_valid': DataLoader,
-    'iterator_valid__shuffle': False,
-    'iterator_valid__drop_last': False,
-}
+warnings.filterwarnings("ignore", category=Warning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
-def cross_validate(model: str = 'GNN',
-                   dataset: str = 'DD',
-                   root: str = './dataset/',
-                   optimizer: str = 'Adam',
-                   lr: float = 0.001,
-                   batch_size: int = -1,
-                   shuffle: bool = True,
-                   drop_last: bool = True,
-                   num_workers: int = 0,
-                   save_params: str = None,
-                   save_history: str = None,
-                   logging_level: int = logging.INFO,
-                   seed: int = 42,
-                   **net_kwargs):
-    """Train a model on a GNNBenchmark Dataset.
-    Args:
-        model (str, optional): The model to train. Defaults to 'GNN'.
-        root (str, optional): Dataset root directory. Defaults to './data/'.
-        optimizer (str, optional): The optimization algorithm. Must be the
-            name of an optimizer in `torch.optim`. Defaults to 'Adam'.
-        lr (float, optional): Learning rate. Defaults to 0.001.
-        batch_size (int, optional): Batch size. If `precompute_batches` is
-            `True`, this value represents the maximum size of the batch, which
-            are split equally or in nearly equal sizes. Defaults to 256.
-        shuffle (bool, optional): Whether to shuffle the data during
-            training. If `precompute_batches` is `True`, shuffles the batch
-            order in which they are sampled. Defaults to `True`.
-        drop_last (bool, optional): Whether to drop the last batch if its size
-            is less than `batch_size`. Has no effect if `precompute_batches`
-            is `True`. Defaults to `True`.
-        num_workers (int, optional): Number of threads used for DataLoading.
-            Defaults to 8.
-        save_params (str, optional): Path of the model parameters to be stored
-            at every checkpoint. Defaults to None.
-        save_history (str, optional): Path of the history JSON to be stored at
-            every checkpoint. Defaults to None.
-        logging_level (int, optional): Threshold level for logs (see `logging`
-            package documentation). Defaults to 10 (`logging.INFO`).
-    """
-
-    opts = dict(DEFAULT_NET_PARAMS)
-    logging.basicConfig(format='%(levelname)s: %(message)s', level=logging_level)
-
-    dataset = dataset.upper()
-    logging.info(f'Loading {dataset} Dataset')
-    dataset = TUDataset(root=root, name=dataset)
+def get_datasets(dataset: str = 'DD',
+                 root: str = './data/',
+                 batch_size: int = -1,
+                 num_workers: int = 0,
+                 seed: int = 42):
+    root = os.path.realpath(root)
     
+    with FileLock(os.path.expanduser('~/.data.lock')):
+        if dataset in {'mal-net', 'MalNet'}:
+            dataset = MalNetTiny(root=os.path.join(root, 'MalNetTiny'))
+        else:
+            dataset = TUDataset(root=root, name=dataset.upper())
+        
     if dataset.num_node_features == 0:
         dataset.transform = Constant()
+    
+    idx = list(range(len(dataset)))
+    y = dataset.data.y.numpy()
+    
+    train_idx, test_idx = train_test_split(idx, test_size=0.2,
+                                           random_state=seed,
+                                           stratify=y)
+    train_idx, valid_idx = train_test_split(train_idx, test_size=0.125,
+                                            random_state=seed,
+                                            stratify=y[train_idx])
+    
+    train_dataset = dataset[train_idx]
+    valid_dataset = dataset[valid_idx]
+    test_dataset = dataset[test_idx]
+    
+    return LightningDataset(train_dataset, valid_dataset, test_dataset,
+                            batch_size=batch_size, num_workers=num_workers)
+    
 
-    opts.update({
-        'module': getattr(models, model),
-        'module__dataset': dataset,
-        'lr': lr,
-        'batch_size': batch_size,
-        'optimizer': getattr(torch.optim, optimizer),
-        'train_split': CVSplit(9, stratified=True, random_state=seed),
-        'criterion': torch.nn.CrossEntropyLoss,
-        'iterator_train__num_workers': num_workers,
-        'iterator_valid__num_workers': num_workers,
-        'iterator_train__shuffle': shuffle,
-        'iterator_train__drop_last': drop_last,
-        'callbacks__checkpoint__f_params': save_params,
-        'callbacks__checkpoint__f_history': save_history,
-        'dataset__length': len(dataset),
-    })
+def train(model: str = 'Baseline',
+          dataset: str = 'DD',
+          root: str = './data/',
+          config: dict = None,
+          num_workers: int = 0,
+          test: bool = False,
+          seed: int = 42,
+          **trainer_kwargs):
+    config = config or {}
+    batch_size = config.get('batch_size', 8)
+    
+    if 'batch_size' in config:
+        config.pop('batch_size')
 
-    logging.debug(f'Setting random seed to {seed}')
-    utils.set_seed(seed)
+    seed_everything(seed)
+    datamodule = get_datasets(dataset, root,
+                              batch_size=batch_size,
+                              num_workers=num_workers)
+    model_cls = getattr(models, model)
+    model = model_cls(datamodule.train_dataset, **config)
 
-    logging.info('Initializing NeuralNet')
-    opts.update(net_kwargs)
-    net = NeuralNetClassifier(**opts).initialize()
+    trainer = pl.Trainer(**trainer_kwargs)
+    trainer.fit(model, datamodule)  # noqa
+    
+    if test:
+        return trainer.test(datamodule=datamodule)  # noqa
+    
+    return None
 
-    config = '\n'.join([f'{f"{k} ".ljust(50, ".")} {v}' for k, v in opts.items()])
-    logging.debug('Configuration:\n\n%s\n', config)
-    logging.debug('Network architecture:\n\n%s\n', str(net))
-    logging.info('Starting training\n')
-    net.partial_fit(dataset)
 
+def grid_search(model: str = 'Baseline',
+                dataset: str = 'DD',
+                root: str = './data/',
+                opt_grid: dict = None,
+                local_dir: str = "./results/",
+                cpu_per_trial: int = 1,
+                gpu_per_trial: int = 0,
+                verbose: int = 1,
+                seed: int = 42):
+    param_grid = {
+        'lr': tune.grid_search([0.01, 0.001, 0.0001]),
+        'batch_size': tune.grid_search([32, 64, 128]),
+        'channels': tune.grid_search([32, 64, 128]),
+        'channel_multiplier': tune.grid_search([1, 2]),
+        'num_layers': tune.grid_search([2, 3]),
+        'gnn_class': tune.grid_search(['GCNConv', 'GATv2Conv', 'GINConv']),
+    }
+    
+    if opt_grid is not None:
+        for k, v in opt_grid:
+            if isinstance(v, list):
+                param_grid[k] = tune.grid_search(v)
+            else:
+                param_grid[k] = v
+                
+    root = os.path.realpath(root)
+    reporter = CLIReporter(
+        metric_columns=["loss", "accuracy", "training_iteration"])
+    
+    def _train_partial(config):
+        train(model, dataset, root, config,
+              num_workers=cpu_per_trial, test=False,
+              seed=seed, gpus=gpu_per_trial,
+              progress_bar_refresh_rate=0,
+              callbacks=[
+                  TuneReportCheckpointCallback({
+                      "loss": "val_loss",
+                      "accuracy": "val_acc"
+                  }, on="validation_end")
+              ])
+    
+    analysis = tune.run(_train_partial,
+                        resources_per_trial={
+                            'cpu': cpu_per_trial,
+                            'gpu': gpu_per_trial,
+                        },
+                        metric="accuracy",
+                        mode="max",
+                        local_dir=local_dir,
+                        config=param_grid,
+                        num_samples=1,
+                        verbose=verbose,
+                        progress_reporter=reporter,
+                        name=f"{model}_{dataset}")
+        
+    print(f"Best config:\t{analysis.best_config}\n"
+          f"Checkpoint at:\t{analysis.best_checkpoint}\n")
+    

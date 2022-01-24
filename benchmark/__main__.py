@@ -1,10 +1,10 @@
 import fire
 
-from benchmark.train import train, score
+from benchmark.train import train, grid_search
 
 
 if __name__ == "__main__":
     fire.Fire({
         'train': train,
-        'score': score,
+        'grid_search': grid_search,
     })
