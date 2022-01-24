@@ -1,4 +1,6 @@
+from typing import Union, Optional
 import warnings
+import logging
 import os
 
 from torch_geometric.data.lightning_datamodule import LightningDataset
@@ -16,6 +18,8 @@ from filelock import FileLock
 
 from sklearn.model_selection import train_test_split
 
+import pandas as pd
+
 from benchmark import models
 
 warnings.filterwarnings("ignore", category=Warning)
@@ -30,7 +34,7 @@ def get_datasets(dataset: str = 'DD',
     root = os.path.realpath(root)
     
     with FileLock(os.path.expanduser('~/.data.lock')):
-        if dataset in {'mal-net', 'MalNet'}:
+        if dataset in {'mal-net', 'MalNet', 'MalNetTiny'}:
             dataset = MalNetTiny(root=os.path.join(root, 'MalNetTiny'))
         else:
             dataset = TUDataset(root=root, name=dataset.upper())
@@ -59,7 +63,7 @@ def get_datasets(dataset: str = 'DD',
 def train(model: str = 'Baseline',
           dataset: str = 'DD',
           root: str = './data/',
-          config: dict = None,
+          config: Optional[dict] = None,
           num_workers: int = 0,
           test: bool = False,
           seed: int = 42,
@@ -75,7 +79,7 @@ def train(model: str = 'Baseline',
                               batch_size=batch_size,
                               num_workers=num_workers)
     model_cls = getattr(models, model)
-    model = model_cls(datamodule.train_dataset, **config)
+    model = model_cls(dataset=datamodule.train_dataset, **config)
 
     trainer = pl.Trainer(**trainer_kwargs)
     trainer.fit(model, datamodule)  # noqa
@@ -89,12 +93,17 @@ def train(model: str = 'Baseline',
 def grid_search(model: str = 'Baseline',
                 dataset: str = 'DD',
                 root: str = './data/',
-                opt_grid: dict = None,
+                opt_grid: Optional[dict] = None,
                 local_dir: str = "./results/",
                 cpu_per_trial: int = 1,
-                gpu_per_trial: int = 0,
+                gpu_per_trial: float = 0,
                 verbose: int = 1,
+                refit: Union[bool, int] = 10,
                 seed: int = 42):
+    logging_level = logging.INFO if verbose > 0 else logging.WARNING
+    logging.basicConfig(format='%(levelname)s: %(message)s',
+                        level=logging_level)
+
     param_grid = {
         'lr': tune.grid_search([0.01, 0.001, 0.0001]),
         'batch_size': tune.grid_search([32, 64, 128]),
@@ -103,8 +112,10 @@ def grid_search(model: str = 'Baseline',
         'num_layers': tune.grid_search([2, 3]),
         'gnn_class': tune.grid_search(['GCNConv', 'GATv2Conv', 'GINConv']),
     }
-    
+
     if opt_grid is not None:
+        logging.info("Updating parameter grid...")
+
         for k, v in opt_grid:
             if isinstance(v, list):
                 param_grid[k] = tune.grid_search(v)
@@ -126,7 +137,9 @@ def grid_search(model: str = 'Baseline',
                       "accuracy": "val_acc"
                   }, on="validation_end")
               ])
-    
+
+    logging.info("Starting grid search...")
+    subdir_name = f"{model}_{dataset}"
     analysis = tune.run(_train_partial,
                         resources_per_trial={
                             'cpu': cpu_per_trial,
@@ -139,8 +152,24 @@ def grid_search(model: str = 'Baseline',
                         num_samples=1,
                         verbose=verbose,
                         progress_reporter=reporter,
-                        name=f"{model}_{dataset}")
-        
-    print(f"Best config:\t{analysis.best_config}\n"
-          f"Checkpoint at:\t{analysis.best_checkpoint}\n")
-    
+                        name=subdir_name)
+
+    if not refit:
+        logging.info(f"Best config:\t{analysis.best_config}\n"
+                     f"Checkpoint at:\t{analysis.best_checkpoint}\n")
+        return
+
+    results = []
+
+    for test_seed in range(int(refit)):
+        metric_list = train(model=model, dataset=dataset, root=root,
+                            config=analysis.best_config, num_workers=cpu_per_trial,
+                            gpus=gpu_per_trial, test=True, seed=test_seed)
+        results.append(metric_list[0])
+
+    df = pd.DataFrame.from_records(results)
+    logging.info(f"Model assessment results:\n\n{df}")
+    json_path = os.path.join(local_dir, subdir_name, 'model_assessment.json')
+    df.to_json(json_path)
+    logging.info(f"Results stored in {json_path}")
+
