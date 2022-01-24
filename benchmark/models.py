@@ -97,7 +97,8 @@ class Baseline(LightningModule):
             in_channels = channels
             channels *= channel_multiplier
             
-        layers.append((MLP([in_channels, in_channels//2, out_channels], dropout=0.5), 'x -> x'))
+        layers.append((MLP([in_channels, in_channels//2, out_channels],
+                           batch_norm=False, dropout=0.5), 'x -> x'))
         self.model = Sequential('x, e_i, e_w, b', layers)
         
         self.loss = torch.nn.CrossEntropyLoss()
