@@ -115,7 +115,7 @@ def grid_search(model: str = 'Baseline',
     if opt_grid is not None:
         logging.info("Updating parameter grid...")
 
-        for k, v in opt_grid:
+        for k, v in opt_grid.items():
             if isinstance(v, list):
                 param_grid[k] = tune.grid_search(v)
             else:
