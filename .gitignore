@@ -136,3 +136,4 @@ notebooks
 results
 .vscode
 .idea
+lightning_logs
