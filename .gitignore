@@ -131,6 +131,7 @@ dmypy.json
 # Project data
 data
 dataset
+datasets
 notebooks
 results
 .vscode
