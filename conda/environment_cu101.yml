@@ -2,19 +2,14 @@ name: kmis
 channels:
   - pytorch
   - conda-forge
-  - pyg
 dependencies:
   - python=3.8
-  - pytorch
-  - torchvision
-  - torchaudio
   - cudatoolkit=10.1
   - scikit-learn
   - pytorch-lightning=1.4
   - setuptools=59.5.0
   - ray-tune
   - numpy
-  - pyg
   - pandas
   - fire
   - matplotlib
@@ -22,3 +17,14 @@ dependencies:
   - networkx
   - tqdm
   - h5py
+  - pip
+  - pip:
+    - -f https://download.pytorch.org/whl/torch_stable.html
+    - -f https://data.pyg.org/whl/torch-1.7.1+cu101.html
+    - torch==1.7.1+cu101
+    - torchvision==0.8.2+cu101
+    - torchaudio==0.7.2
+    - torch-sparse
+    - torch-scatter
+    - torch-cluster
+    - torch-geometric
