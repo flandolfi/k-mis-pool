@@ -8,7 +8,7 @@ for DATASET in "DD" "REDDIT-BINARY" "REDDIT-MULTI-5K" "REDDIT-MULTI-12K"; do
     $GS_CMD --dataset $DATASET --model $MODEL
   done
 
-  for MODEL in Baseline TopKPool SAGPool ASAPool; do
+  for MODEL in TopKPool SAGPool ASAPool; do
     $GS_CMD --dataset $DATASET --model $MODEL --opt_grid "{'ratio':[0.5,0.2,0.1]}"
   done
 
