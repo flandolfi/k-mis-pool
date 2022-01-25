@@ -173,7 +173,7 @@ def grid_search(model: str = 'Baseline',
     logging.info(f"Model assessment results:\n\n{results}")
     
     df_results = pd.DataFrame.from_records(results)
-    df_config = pd.DataFrame.from_dict(best_config)
+    df_config = pd.DataFrame.from_records([best_config])
     results_path = os.path.join(local_dir, exp_name, 'model_assessment.json')
     config_path = os.path.join(local_dir, exp_name, 'best_config.json')
     df_results.to_json(results_path)
