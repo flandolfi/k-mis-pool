@@ -69,7 +69,7 @@ def train(model: str = 'Baseline',
           test: bool = False,
           seed: int = 42,
           **trainer_kwargs):
-    config = config or {}
+    config = dict(config or {})
     batch_size = config.get('batch_size', 8)
     
     if 'batch_size' in config:
@@ -161,10 +161,11 @@ def grid_search(model: str = 'Baseline',
         return
 
     results = []
+    best_config = analysis.best_config
 
     for test_seed in range(int(refit)):
         metric_list = train(model=model, dataset=dataset, root=root,
-                            config=analysis.best_config, num_workers=cpu_per_trial,
+                            config=dict(best_config), num_workers=cpu_per_trial,
                             gpus=math.ceil(gpu_per_trial), test=True, seed=test_seed)
         results.append(metric_list[0])
 
