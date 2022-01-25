@@ -108,7 +108,7 @@ def grid_search(model: str = 'Baseline',
     param_grid = {
         'lr': tune.grid_search([0.001, 0.0001]),
         'batch_size': tune.grid_search([32, 64, 128]),
-        'channels': tune.grid_search([32, 64]),
+        'channels': tune.grid_search([32, 64, 128]),
         'gnn_class': tune.grid_search(['GCNConv', 'GATv2Conv', 'GINConv']),
     }
 
