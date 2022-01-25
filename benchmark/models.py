@@ -59,7 +59,7 @@ class Baseline(LightningModule):
             _gnn_cls = gnn_class
             
             def gnn_class(in_channels, out_channels, **kwargs):
-                return _gnn_cls(nn=MLP([in_channels, out_channels, out_channels],
+                return _gnn_cls(nn=MLP([in_channels, in_channels, out_channels],
                                        batch_norm=False), **kwargs)
 
         if gnn_kwargs is None:

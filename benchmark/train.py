@@ -106,9 +106,9 @@ def grid_search(model: str = 'Baseline',
                         level=logging_level)
 
     param_grid = {
-        'lr': tune.grid_search([0.01, 0.001, 0.0001]),
+        'lr': tune.grid_search([0.001, 0.0001]),
         'batch_size': tune.grid_search([32, 64, 128]),
-        'channels': tune.grid_search([32, 64, 128]),
+        'channels': tune.grid_search([32, 64]),
         'gnn_class': tune.grid_search(['GCNConv', 'GATv2Conv', 'GINConv']),
     }
 
@@ -151,6 +151,8 @@ def grid_search(model: str = 'Baseline',
                         num_samples=1,
                         verbose=verbose,
                         progress_reporter=reporter,
+                        raise_on_failed_trial=False,
+                        fail_fast=False,
                         name=subdir_name)
 
     if not refit:

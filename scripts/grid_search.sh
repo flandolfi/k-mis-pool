@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CONFIG_ALL="--root datasets --cpu_per_trial 4 --gpu_per_trial 0.25"
+CONFIG_ALL="--root datasets --cpu_per_trial 4 --gpu_per_trial 0.5"
 GS_CMD="python -m benchmark grid_search $CONFIG_ALL"
 
 for DATASET in "DD" "REDDIT-BINARY" "REDDIT-MULTI-5K" "REDDIT-MULTI-12K"; do
