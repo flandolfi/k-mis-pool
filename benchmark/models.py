@@ -40,7 +40,7 @@ class Baseline(LightningModule):
     
     def __init__(self, dataset: InMemoryDataset,
                  lr: float = 0.001,
-                 patience: int = 20,
+                 patience: int = 30,
                  channels: int = 64,
                  channel_multiplier: int = 2,
                  num_layers: int = 3,
