@@ -138,7 +138,7 @@ def grid_search(model: str = 'Baseline',
               ])
 
     logging.info("Starting grid search...")
-    subdir_name = f"{model}_{dataset}"
+    exp_name = f"{model}_{dataset}"
     analysis = tune.run(_train_partial,
                         resources_per_trial={
                             'cpu': cpu_per_trial,
@@ -153,7 +153,7 @@ def grid_search(model: str = 'Baseline',
                         progress_reporter=reporter,
                         raise_on_failed_trial=False,
                         fail_fast=False,
-                        name=subdir_name)
+                        name=exp_name)
 
     if not refit:
         logging.info(f"Best config:\t{analysis.best_config}\n"
@@ -170,7 +170,7 @@ def grid_search(model: str = 'Baseline',
 
     df = pd.DataFrame.from_records(results)
     logging.info(f"Model assessment results:\n\n{df}")
-    json_path = os.path.join(local_dir, subdir_name, 'model_assessment.json')
+    json_path = os.path.join(local_dir, exp_name, 'model_assessment.json')
     df.to_json(json_path)
     logging.info(f"Results stored in {json_path}")
 
