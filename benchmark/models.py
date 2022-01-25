@@ -3,7 +3,7 @@ from typing import Union, Callable, Optional
 import torch
 
 from torch_geometric.nn import Sequential, conv, pool
-from torch_geometric.nn.glob import global_mean_pool
+from torch_geometric.nn.glob import global_add_pool, global_max_pool
 from torch_geometric.nn.pool import TopKPooling, SAGPooling, ASAPooling, PANPooling
 from torch_geometric.nn.models import MLP
 from torch_geometric.data import InMemoryDataset, Data
@@ -88,7 +88,10 @@ class Baseline(LightningModule):
             layers.append((gnn_class(in_channels=in_channels, out_channels=channels, **gnn_kwargs), gnn_signature))
             
             if l_id == num_layers - 1:
-                layers.append((global_mean_pool, 'x, b -> x'))
+                layers.append((global_max_pool, 'x, b -> x_m'))
+                layers.append((global_add_pool, 'x, b -> x_a'))
+                layers.append((lambda x_m, x_a: torch.cat([x_m, x_a], dim=-1),
+                               'x_m, x_a -> x'))
             elif pool_class is not None:
                 layers.append((pool_class(in_channels=channels, **pool_kwargs), pool_signature))
                 
@@ -97,8 +100,8 @@ class Baseline(LightningModule):
             in_channels = channels
             channels *= channel_multiplier
             
-        layers.append((MLP([in_channels, in_channels//2, out_channels],
-                           batch_norm=False, dropout=0.5), 'x -> x'))
+        layers.append((MLP([2*in_channels, in_channels//4, out_channels],
+                           batch_norm=False, dropout=0.3), 'x -> x'))
         self.model = Sequential('x, e_i, e_w, b', layers)
         
         self.loss = torch.nn.CrossEntropyLoss()
