@@ -6,7 +6,8 @@ GS_CMD="python -m benchmark grid_search $CONFIG_ALL"
 
 clean_up () {
   PREFIX=$RESULTS_DIR/${1}_${2}
-  mv $PREFIX/model_assessment.json ${PREFIX}.json
+  mv $PREFIX/model_assessment.json ${PREFIX}_results.json
+  mv $PREFIX/best_config.json ${PREFIX}_config.json
   rm -r $PREFIX
 }
 

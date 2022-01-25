@@ -155,9 +155,10 @@ def grid_search(model: str = 'Baseline',
                         fail_fast=False,
                         name=exp_name)
 
+    logging.info(f"Best config:\t{analysis.best_config}\n")
+    
     if not refit:
-        logging.info(f"Best config:\t{analysis.best_config}\n"
-                     f"Checkpoint at:\t{analysis.best_checkpoint}\n")
+        logging.info(f"Checkpoint at:\t{analysis.best_checkpoint}\n")
         return
 
     results = []
@@ -169,9 +170,15 @@ def grid_search(model: str = 'Baseline',
                             gpus=math.ceil(gpu_per_trial), test=True, seed=test_seed)
         results.append(metric_list[0])
 
-    df = pd.DataFrame.from_records(results)
-    logging.info(f"Model assessment results:\n\n{df}")
-    json_path = os.path.join(local_dir, exp_name, 'model_assessment.json')
-    df.to_json(json_path)
-    logging.info(f"Results stored in {json_path}")
+    logging.info(f"Model assessment results:\n\n{results}")
+    
+    df_results = pd.DataFrame.from_records(results)
+    df_config = pd.DataFrame.from_dict(best_config)
+    results_path = os.path.join(local_dir, exp_name, 'model_assessment.json')
+    config_path = os.path.join(local_dir, exp_name, 'best_config.json')
+    df_results.to_json(results_path)
+    df_config.to_json(config_path)
+    logging.info(f"Results stored in\n"
+                 f" - {results_path}\n"
+                 f" - {config_path}")
 
