@@ -6,7 +6,7 @@ import os
 
 from torch_geometric.data.lightning_datamodule import LightningDataset
 from torch_geometric.datasets import TUDataset, MalNetTiny
-from torch_geometric.transforms import Constant
+from torch_geometric.transforms import Constant, Compose, ToUndirected
 from torch_geometric import seed_everything
 
 import pytorch_lightning as pl
@@ -36,12 +36,13 @@ def get_datasets(dataset: str = 'DD',
     
     with FileLock(os.path.expanduser('~/.data.lock')):
         if dataset in {'mal-net', 'MalNet', 'MalNetTiny'}:
-            dataset = MalNetTiny(root=os.path.join(root, 'MalNetTiny'))
+            dataset = MalNetTiny(root=os.path.join(root, 'MalNetTiny'),
+                                 transform=Compose([Constant(), ToUndirected()]))
         else:
             dataset = TUDataset(root=root, name=dataset.upper())
-        
-    if dataset.num_node_features == 0:
-        dataset.transform = Constant()
+            
+            if dataset.num_node_features == 0:
+                dataset.transform = Constant()
     
     idx = list(range(len(dataset)))
     y = dataset.data.y.numpy()
