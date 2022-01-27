@@ -22,3 +22,6 @@ dependencies:
   - networkx
   - tqdm
   - h5py
+  - pip
+  - pip:
+      - -U torch-geometric

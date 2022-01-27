@@ -5,7 +5,7 @@ channels:
   - pyg
 dependencies:
   - python=3.8
-  - cudatoolkit=11.0
+  - cudatoolkit=11.1
   - pytorch=1.8.1
   - torchvision=0.9.1
   - torchaudio=0.8.1
@@ -22,3 +22,6 @@ dependencies:
   - networkx
   - tqdm
   - h5py
+  - pip
+  - pip:
+      - -U torch-geometric
