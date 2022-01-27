@@ -33,10 +33,8 @@ class Baseline(LightningModule):
         'KMISPooling': 'x, e_i, e_w, b -> x, e_i, e_w, b, perm, mis, score',
     }
     
-    requires_nn = {
-        'GINConv',
-        'GINEConv',
-    }
+    requires_nn = {'GINConv', 'GINEConv'}
+    requires_edge_dim = {'GATConv', 'GATv2Conv'}
     
     def __init__(self, dataset: InMemoryDataset,
                  lr: float = 0.001,
@@ -80,7 +78,11 @@ class Baseline(LightningModule):
                                                        'x, e_i, e_w, b -> x, e_i, e_w, b')
         
         in_channels = dataset.num_node_features or 1
+        edge_channels = dataset.num_edge_features or 1
         out_channels = dataset.num_classes
+        
+        if gnn_class.__name__ in self.requires_edge_dim:
+            gnn_kwargs.setdefault('edge_dim', edge_channels)
         
         layers = []
         
@@ -114,6 +116,9 @@ class Baseline(LightningModule):
         return torch.mean(torch.eq(y_class, y_true).float())
         
     def forward(self, x, edge_index, edge_attr=None, batch=None):
+        if edge_attr is None:
+            edge_attr = torch.ones_like(edge_index[0], dtype=torch.float)
+        
         return self.model(x, edge_index, edge_attr, batch)
 
     def training_step(self, data, batch_idx):
