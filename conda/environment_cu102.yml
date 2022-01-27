@@ -24,4 +24,4 @@ dependencies:
   - h5py
   - pip
   - pip:
-      - -U torch-geometric
+      - torch-geometric==2.0.3
