@@ -216,13 +216,17 @@ class KMISPool(Baseline):
     def __init__(self, dataset: InMemoryDataset, k: int,
                  scorer: str = 'linear',
                  ordering: str = 'div-k-sum',
+                 reduction: str = 'sum',
                  **kwargs):
         kwargs['pool_class'] = KMISPooling
         kwargs['pool_kwargs'] = {
             'k': k,
             'scorer': scorer,
             'ordering': ordering,
+            'reduce_edge': reduction,
         }
+        
+        kwargs['pool_signature'] = self.known_signatures['KMISPool']
 
         if 'gnn_class' in kwargs:
             gnn_class = kwargs['gnn_class']
@@ -245,3 +249,30 @@ class KMISPoolNorm(KMISPool):
     def __init__(self, dataset: InMemoryDataset, k: int, **kwargs):
         super(KMISPoolNorm, self).__init__(dataset=dataset, k=k, scorer='norm', **kwargs)
 
+
+class KMISPoolConst(KMISPool):
+    def __init__(self, dataset: InMemoryDataset, k: int, **kwargs):
+        super(KMISPoolConst, self).__init__(dataset=dataset, k=k, scorer='const', **kwargs)
+
+
+class KMISPoolLinear(KMISPool):
+    def __init__(self, dataset: InMemoryDataset, k: int, **kwargs):
+        super(KMISPoolLinear, self).__init__(dataset=dataset, k=k, scorer='linear', **kwargs)
+
+
+class KMISPoolSAG(KMISPool):
+    def __init__(self, dataset: InMemoryDataset, k: int, **kwargs):
+        super(KMISPoolSAG, self).__init__(dataset=dataset, k=k, scorer='sagpool', **kwargs)
+
+
+class KMISPoolASA(KMISPool):
+    def __init__(self, dataset: InMemoryDataset, k: int, **kwargs):
+        super(KMISPoolASA, self).__init__(dataset=dataset, k=k, scorer='asapool',
+                                          reduction='dense', **kwargs)
+
+
+class KMISPoolPAN(KMISPool):
+    def __init__(self, dataset: InMemoryDataset, k: int, filter_size: int, **kwargs):
+        kwargs['gnn_class'] = conv.PANConv
+        kwargs['gnn_kwargs'] = {'filter_size': filter_size}
+        super(KMISPoolPAN, self).__init__(dataset=dataset, k=k, scorer='panpool', **kwargs)
