@@ -5,16 +5,16 @@ channels:
   - pyg
 dependencies:
   - python=3.8
-  - pytorch
-  - torchvision
-  - torchaudio
   - cpuonly
-  - scikit-learn
+  - pytorch=1.8.1
+  - torchvision=0.9.1
+  - torchaudio=0.8.1
   - pytorch-lightning=1.4
   - setuptools=59.5.0
   - ray-tune
-  - numpy
   - pyg
+  - scikit-learn
+  - numpy
   - pandas
   - fire
   - matplotlib
