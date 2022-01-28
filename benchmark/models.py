@@ -226,7 +226,7 @@ class KMISPool(Baseline):
             'reduce_edge': reduction,
         }
         
-        kwargs['pool_signature'] = self.known_signatures['KMISPool']
+        kwargs['pool_signature'] = self.known_signatures['KMISPooling']
 
         if 'gnn_class' in kwargs:
             gnn_class = kwargs['gnn_class']
@@ -271,8 +271,19 @@ class KMISPoolASA(KMISPool):
                                           reduction='dense', **kwargs)
 
 
-class KMISPoolPAN(KMISPool):
+class KMISPoolPAN(Baseline):
     def __init__(self, dataset: InMemoryDataset, k: int, filter_size: int, **kwargs):
+        class _KMIS_PAN_Pooling(KMISPooling):
+            def __init__(self, in_channels=None):
+                super(_KMIS_PAN_Pooling, self).__init__(in_channels=in_channels, k=k,
+                                                        scorer='panpool', ordering='div-k-sum')
+
+            def forward(self, x, edge_index, edge_attr=None, batch=None, M=None):  # noqa
+                self.scorer.update_met_matrix(M)  # noqa
+                return super(_KMIS_PAN_Pooling, self).forward(x, edge_index, edge_attr, batch)
+
         kwargs['gnn_class'] = conv.PANConv
         kwargs['gnn_kwargs'] = {'filter_size': filter_size}
-        super(KMISPoolPAN, self).__init__(dataset=dataset, k=k, scorer='panpool', **kwargs)
+        kwargs['pool_signature'] = 'x, e_i, e_w, b, M -> x, e_i, e_w, b, perm, mis, score'
+        kwargs['pool_class'] = _KMIS_PAN_Pooling
+        super(KMISPoolPAN, self).__init__(dataset=dataset, **kwargs)

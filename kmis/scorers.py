@@ -13,23 +13,22 @@ from torch_scatter import scatter_max, scatter_add
 
 class Scorer(ABC):
     @abstractmethod
-    def __call__(self, x: Tensor, edge_index: Adj,
-                 edge_attr: OptTensor = None, **kwargs) -> Tuple[Tensor, Tensor]:
+    def __call__(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None) -> Tuple[Tensor, Tensor]:
         raise NotImplementedError
     
 
 class ConstantScorer(Scorer):
-    def __call__(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None, **kwargs):
+    def __call__(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None):
         return x, torch.ones_like(x[:, 0])
 
 
 class RandomScorer(Scorer):
-    def __call__(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None, **kwargs):
+    def __call__(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None):
         return x, torch.randperm(x.size(0), device=x.device)
 
 
 class CanonicalScorer(Scorer):
-    def __call__(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None, **kwargs):
+    def __call__(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None):
         return x, torch.arange(x.size(0), device=x.device)
     
 
@@ -40,7 +39,7 @@ class LambdaScorer(Scorer):
             
         self.scorer = scorer
     
-    def __call__(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None, **kwargs):
+    def __call__(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None):
         score = self.scorer(x, dim=-1)
         
         if isinstance(score, tuple):  # Max-like functions
@@ -63,7 +62,7 @@ class LinearScorer(Module, Scorer):
         score = torch.sigmoid(score / self.lin.weight.norm(p=2, dim=-1))
         return x*score, score.view(-1)
 
-    def __call__(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None, **kwargs):
+    def __call__(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None):
         return Module.__call__(self, x)
 
 
@@ -76,7 +75,7 @@ class SAGScorer(Module, Scorer):
         score = self.gnn(x, edge_index, edge_attr).sigmoid()
         return x*score, score.view(-1)
 
-    def __call__(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None, **kwargs):
+    def __call__(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None):
         return Module.__call__(self, x, edge_index, edge_attr)
 
 
@@ -119,22 +118,26 @@ class ASAScorer(Module, Scorer):
         score = self.gnn_score(x, edge_index).sigmoid()
         return x*score, score.view(-1)
 
-    def __call__(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None, **kwargs):
+    def __call__(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None):
         return Module.__call__(self, x, edge_index, edge_attr)
 
 
 class PANScorer(Module, Scorer):
-    def __init__(self, in_channels: int):
+    def __init__(self, in_channels: int, M: SparseTensor = None):
         Module.__init__(self)
     
         self.p = Parameter(torch.Tensor(in_channels))
         self.beta = Parameter(torch.Tensor(2))
+        self.M = M
         
         self.reset_parameters()
 
     def reset_parameters(self):
         self.p.data.fill_(1)
         self.beta.data.fill_(0.5)
+
+    def update_met_matrix(self, M: SparseTensor):
+        self.M = M
 
     def forward(self, x: Tensor, M: SparseTensor):
         row, col, edge_weight = M.coo()
@@ -144,10 +147,10 @@ class PANScorer(Module, Scorer):
         score = self.beta[0] * score1 + self.beta[1] * score2
         score = torch.sigmoid(score)
 
-        return x*score, score.view(-1)
+        return x*score.view(-1, 1), score
 
-    def __call__(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None, **kwargs):
-        return Module.__call__(self, x, **kwargs)
+    def __call__(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None):
+        return Module.__call__(self, x, self.M)
 
 
 # Alias

@@ -3,7 +3,7 @@ from typing import Callable, Tuple, Union, Optional
 import torch
 from torch.nn import Module
 from torch_geometric.typing import Adj, Tensor, OptTensor
-from torch_sparse import SparseTensor
+from torch_sparse import SparseTensor, remove_diag, masked_select, matmul, t as transpose
 from torch_scatter import scatter_min, scatter
 
 from kmis import orderings, sample, scorers
@@ -55,7 +55,7 @@ def sparse_reduce_adj(mis: Tensor, adj: SparseTensor, k: int = 1, rank: OptTenso
                        sparse_sizes=(c, c)).coalesce(reduce)
     
     if remove_self_loops:
-        adj = adj.remove_diag()
+        adj = remove_diag(adj)
 
     return adj, cluster
 
@@ -64,15 +64,16 @@ def sparse_reduce_adj(mis: Tensor, adj: SparseTensor, k: int = 1, rank: OptTenso
 @torch.jit.script
 def dense_reduce_adj(mis: Tensor, adj: SparseTensor, k: int = 1,
                      remove_self_loops: bool = True) -> Tuple[SparseTensor, SparseTensor]:
-    r_mat = adj[mis, :]
+    r_mat = masked_select(adj, dim=0, mask=mis)
     
     for _ in range(k - 1):
-        r_mat = r_mat @ adj
+        r_mat = matmul(r_mat, adj)
         
-    adj = (r_mat @ adj) @ r_mat.t()
+    adj = matmul(matmul(r_mat, adj),
+                 transpose(r_mat))
     
     if remove_self_loops:
-        adj = adj.remove_diag()
+        adj = remove_diag(adj)
     
     return adj, r_mat
 
@@ -123,10 +124,10 @@ class KMISPooling(Module):
         self.remove_self_loops = remove_self_loops
 
     def forward(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None,
-                batch: OptTensor = None, **kwargs) -> Tuple[Tensor, Adj, OptTensor, OptTensor,
-                                                            Union[SparseTensor, Tensor], Tensor, Tensor]:
+                batch: OptTensor = None) -> Tuple[Tensor, Adj, OptTensor, OptTensor,
+                                                  Union[SparseTensor, Tensor], Tensor, Tensor]:
         adj, n = edge_index, x.size(0)
-        x, score = self.scorer(x, edge_index, edge_attr, **kwargs)
+        x, score = self.scorer(x, edge_index, edge_attr)
         
         if torch.is_tensor(edge_index):
             adj = SparseTensor.from_edge_index(edge_index, edge_attr, (n, n))
