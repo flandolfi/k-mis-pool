@@ -16,6 +16,7 @@ def get_ranking(value: Tensor, descending: bool = True) -> Tensor:
 
 class Ordering(ABC):
     def __call__(self, x: Tensor, adj: SparseTensor) -> Tensor:
+        assert x.dim() == 1 or x.size(1) == 1
         return get_ranking(self._compute(x, adj), descending=True)
 
     @abstractmethod
@@ -33,8 +34,6 @@ class DivKSum(Ordering):
         self.k = k
 
     def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
-        assert x.dim() == 1 or x.size(1) == 1
-        
         row, col, _ = adj.coo()
         x = x.view(-1)
         k_sums = x.clone()
@@ -50,8 +49,6 @@ class DivKDegree(Ordering):
         self.k = k
 
     def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
-        assert x.dim() == 1 or x.size(1) == 1
-        
         row, col, _ = adj.coo()
         x = x.view(-1)
         k_deg = torch.ones_like(x)
@@ -73,9 +70,7 @@ class DenseDivKSum(Ordering):
         self.k = k
 
     def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
-        assert x.dim() == 1 or x.size(1) == 1
-    
-        adj = adj.set_value(None, layout=None)
+        adj = adj.set_value(None, layout=None).fill_diag(None)
     
         for _ in range(1, self.k):
             adj @= adj
@@ -91,9 +86,7 @@ class DenseDivKDegree(Ordering):
         self.k = k
 
     def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
-        assert x.dim() == 1 or x.size(1) == 1
-        
-        adj = adj.set_value(None, layout=None)
+        adj = adj.set_value(None, layout=None).fill_diag(None)
         
         for _ in range(1, self.k):
             adj @= adj
