@@ -67,3 +67,42 @@ class InvKDegree(DivKDegree):
         x = torch.ones((adj.size(0),), dtype=torch.float, device=adj.device())
         return super(InvKDegree, self)._compute(x, adj)
 
+
+class DenseDivKSum(Ordering):
+    def __init__(self, k: int = 1):
+        self.k = k
+
+    def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
+        assert x.dim() == 1 or x.size(1) == 1
+    
+        adj = adj.set_value(None, layout=None)
+    
+        for _ in range(1, self.k):
+            adj @= adj
+            adj.set_value_(None, layout=None)
+    
+        k_sums = adj @ x.view(-1, 1)
+    
+        return x.view(-1) / k_sums.view(-1)
+
+
+class DenseDivKDegree(Ordering):
+    def __init__(self, k: int = 1):
+        self.k = k
+
+    def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
+        assert x.dim() == 1 or x.size(1) == 1
+        
+        adj = adj.set_value(None, layout=None)
+        
+        for _ in range(1, self.k):
+            adj @= adj
+            adj.set_value_(None, layout=None)
+
+        return x.view(-1) / adj.sum(-1).view(-1)
+
+
+class DenseInvKDegree(DivKDegree):
+    def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
+        x = torch.ones((adj.size(0),), dtype=torch.float, device=adj.device())
+        return super(DenseInvKDegree, self)._compute(x, adj)
