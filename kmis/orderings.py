@@ -71,12 +71,13 @@ class DenseDivKSum(Ordering):
 
     def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
         adj = adj.set_value(None, layout=None).fill_diag(None)
+        adj_pow = adj.clone()
     
         for _ in range(1, self.k):
-            adj @= adj
-            adj.set_value_(None, layout=None)
+            adj_pow @= adj
+            adj_pow.set_value_(None, layout=None)
     
-        k_sums = adj @ x.view(-1, 1)
+        k_sums = adj_pow @ x.view(-1, 1)
     
         return x.view(-1) / k_sums.view(-1)
 
@@ -87,12 +88,13 @@ class DenseDivKDegree(Ordering):
 
     def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
         adj = adj.set_value(None, layout=None).fill_diag(None)
-        
+        adj_pow = adj.clone()
+    
         for _ in range(1, self.k):
-            adj @= adj
-            adj.set_value_(None, layout=None)
+            adj_pow @= adj
+            adj_pow.set_value_(None, layout=None)
 
-        return x.view(-1) / adj.sum(-1).view(-1)
+        return x.view(-1) / adj_pow.sum(-1).view(-1)
 
 
 class DenseInvKDegree(DivKDegree):
