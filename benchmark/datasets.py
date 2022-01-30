@@ -70,7 +70,7 @@ class SuiteSparseMatrixCollection(InMemoryDataset):
             for aux, aux_dtype in zip(data, data.dtype.names):
                 if aux_dtype == 'aux':
                     for pos, pos_dtype in zip(aux, aux.dtype.names):
-                        if pos_dtype == 'coord':
+                        if pos_dtype in {'coord', 'nodename'}:
                             pos = torch.from_numpy(pos[0][0]).float()
                             break
                     break
