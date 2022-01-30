@@ -16,6 +16,7 @@ def get_ranking(value: Tensor, descending: bool = True) -> Tensor:
 
 class Ordering(ABC):
     def __call__(self, x: Tensor, adj: SparseTensor) -> Tensor:
+        assert x.dim() == 1 or x.size(1) == 1
         return get_ranking(self._compute(x, adj), descending=True)
 
     @abstractmethod
@@ -33,8 +34,6 @@ class DivKSum(Ordering):
         self.k = k
 
     def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
-        assert x.dim() == 1 or x.size(1) == 1
-        
         row, col, _ = adj.coo()
         x = x.view(-1)
         k_sums = x.clone()
@@ -50,8 +49,6 @@ class DivKDegree(Ordering):
         self.k = k
 
     def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
-        assert x.dim() == 1 or x.size(1) == 1
-        
         row, col, _ = adj.coo()
         x = x.view(-1)
         k_deg = torch.ones_like(x)
@@ -67,3 +64,40 @@ class InvKDegree(DivKDegree):
         x = torch.ones((adj.size(0),), dtype=torch.float, device=adj.device())
         return super(InvKDegree, self)._compute(x, adj)
 
+
+class DenseDivKSum(Ordering):
+    def __init__(self, k: int = 1):
+        self.k = k
+
+    def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
+        adj = adj.set_value(None, layout=None).fill_diag(None)
+        adj_pow = adj.clone()
+    
+        for _ in range(1, self.k):
+            adj_pow @= adj
+            adj_pow.set_value_(None, layout=None)
+    
+        k_sums = adj_pow @ x.view(-1, 1)
+    
+        return x.view(-1) / k_sums.view(-1)
+
+
+class DenseDivKDegree(Ordering):
+    def __init__(self, k: int = 1):
+        self.k = k
+
+    def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
+        adj = adj.set_value(None, layout=None).fill_diag(None)
+        adj_pow = adj.clone()
+    
+        for _ in range(1, self.k):
+            adj_pow @= adj
+            adj_pow.set_value_(None, layout=None)
+
+        return x.view(-1) / adj_pow.sum(-1).view(-1)
+
+
+class DenseInvKDegree(DivKDegree):
+    def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
+        x = torch.ones((adj.size(0),), dtype=torch.float, device=adj.device())
+        return super(DenseInvKDegree, self)._compute(x, adj)

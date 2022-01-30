@@ -39,7 +39,7 @@ def get_datasets(dataset: str = 'DD',
             dataset = MalNetTiny(root=os.path.join(root, 'MalNetTiny'),
                                  transform=Compose([Constant(), ToUndirected()]))
         else:
-            dataset = TUDataset(root=root, name=dataset.upper())
+            dataset = TUDataset(root=root, name=dataset)
             
             if dataset.num_node_features == 0:
                 dataset.transform = Constant()
