@@ -255,9 +255,9 @@ class KMISPoolConst(KMISPool):
         super(KMISPoolConst, self).__init__(dataset=dataset, k=k, scorer='const', **kwargs)
 
 
-class KMISPoolLinear(KMISPool):
+class KMISPoolTOPK(KMISPool):
     def __init__(self, dataset: InMemoryDataset, k: int, **kwargs):
-        super(KMISPoolLinear, self).__init__(dataset=dataset, k=k, scorer='linear', **kwargs)
+        super(KMISPoolTOPK, self).__init__(dataset=dataset, k=k, scorer='topkpool', **kwargs)
 
 
 class KMISPoolSAG(KMISPool):

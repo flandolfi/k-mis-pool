@@ -52,18 +52,28 @@ class LambdaScorer(Scorer):
 # https://github.com/pyg-team/pytorch_geometric/tree/master/torch_geometric/nn/pool
 
 class LinearScorer(Module, Scorer):
-    def __init__(self, in_channels: int):
+    def __init__(self, in_channels: int, normalize: bool = False):
         Module.__init__(self)
         self.lin = Linear(in_channels=in_channels, out_channels=1,
-                          bias=False, weight_initializer='uniform')
+                          bias=not normalize, weight_initializer='uniform')
+        self.normalize = normalize
 
     def forward(self, x: Tensor):
         score = self.lin(x)
-        score = torch.sigmoid(score / self.lin.weight.norm(p=2, dim=-1))
+        
+        if self.normalize:
+            score = score / self.lin.weight.norm(p=2, dim=-1)
+            
+        score = torch.sigmoid(score)
         return x*score, score.view(-1)
 
     def __call__(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None):
         return Module.__call__(self, x)
+
+
+class TOPKScorer(LinearScorer):
+    def __init__(self, in_channels: int):
+        super(TOPKScorer, self).__init__(in_channels=in_channels, normalize=True)
 
 
 class SAGScorer(Module, Scorer):
@@ -152,6 +162,3 @@ class PANScorer(Module, Scorer):
     def __call__(self, x: Tensor, edge_index: Adj, edge_attr: OptTensor = None):
         return Module.__call__(self, x, self.M)
 
-
-# Alias
-TOPKScorer = LinearScorer
