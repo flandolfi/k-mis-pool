@@ -21,44 +21,50 @@ def generate_dimacs92_files(
         name: str = 'luxembourg_osm',
         group: str = 'DIMACS10',
         root: str = 'datasets/',
-        k: int = 1,
+        max_k: int = 3,
         runs: int = 10,
+        fast: bool = False,
         output_dir: str = None,
         logging_level: int = logging.INFO):
     if output_dir is None:
         output_dir = root
-        
-    adj = load_graph(name, group, root, 'cpu', logging_level=logging_level)
 
-    logging.info(f"Computing the power-{k} graph")
+    adj = load_graph(name, group, root, 'cpu', logging_level=logging_level)
     adj = adj.set_value(None, layout=None).fill_diag(fill_value=None)
     adj_pow = adj.clone()
-    
-    for _ in range(1, k):
-        adj_pow @= adj
-    
-    del adj
-    adj = adj_pow.remove_diag()
-    row, col, _ = adj.coo()
-    mask = row < col
-    row = row[mask] + 1
-    col = col[mask] + 1
-    n, m = adj.size(0), row.size(0)
-    del adj
-    
-    with logging_redirect_tqdm():
-        for seed in tqdm(range(runs), total=runs):
-            header = f"c seed {seed}\np edge {n} {m}\n"
-            logging.info("Generating random weights...")
-            x = generate_random_weights(n, seed=seed)
 
-            logging.info("Writing dimacs92 file...")
-            with open(os.path.join(output_dir, f"{name}_{group}_K{k}_S{seed}.graph"), 'w') as fd:
-                fd.write(header)
-                fd.write("".join(f"n {i} {w}\n" for i, w in enumerate(x, start=1)))
-                
-                for e in tqdm(range(m), total=m):
-                    fd.write(f"e {row[e]} {col[e]}\n")
+    for k in range(1, max_k + 1):
+        logging.info(f"Computing the power-{k} graph")
+
+        if k > 1:
+            adj_pow @= adj
+
+        row, col, _ = adj_pow.coo()
+        mask = row < col
+        row = row[mask] + 1
+        col = col[mask] + 1
+        n, m = adj.size(0), row.size(0)
+
+        if fast:
+            logging.info("Generating edge list...")
+            footer = "".join(f"e {r} {c}\n" for r, c in zip(row, col))
+
+        with logging_redirect_tqdm():
+            for seed in tqdm(range(runs), total=runs):
+                header = f"c seed {seed}\np edge {n} {m}\n"
+                logging.info("Generating random weights...")
+                x = generate_random_weights(n, seed=seed)
+
+                logging.info("Writing dimacs92 file...")
+                with open(os.path.join(output_dir, f"{name}_{group}_K{k}_S{seed}.graph"), 'w') as fd:
+                    fd.write(header)
+                    fd.write("".join(f"n {i} {w}\n" for i, w in enumerate(x, start=1)))
+
+                    if fast:
+                        fd.write(footer)
+                    else:
+                        for e in tqdm(range(m), total=m):
+                            fd.write(f"e {row[e]} {col[e]}\n")
 
 
 def weight(name: str = 'luxembourg_osm',

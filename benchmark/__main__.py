@@ -16,5 +16,5 @@ if __name__ == "__main__":
         'grid_search': grid_search,
         'info': info,
         'weight': weight,
-        'dimacs92': generate_dimacs92_files
+        'export': generate_dimacs92_files
     })
