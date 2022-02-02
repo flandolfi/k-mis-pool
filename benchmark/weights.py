@@ -77,6 +77,15 @@ def weight(name: str = 'luxembourg_osm',
            store_results: str = None,
            logging_level: int = logging.INFO):
     adj = load_graph(name, group, root, device, logging_level=logging_level)
+    adj = adj.set_value(None, layout=None)
+
+    logging.info(f"Computing {k}-paths upper-bound...")
+    k_paths = torch.ones((adj.size(0), 1), dtype=torch.long, device=device)
+
+    for _ in range(k):
+        k_paths += adj @ k_paths
+
+    max_k_paths = k_paths.max().item()
     
     logging.info(f"Initializing ordering {ordering}")
     
@@ -111,6 +120,7 @@ def weight(name: str = 'luxembourg_osm',
                 'k': k,
                 'n': adj.size(0),
                 'm': adj.nnz(),
+                'd_max': max_k_paths,
                 'mis_size': mis_size,
                 'mis_weight': mis_weight,
                 'total_weight': total_weight,
