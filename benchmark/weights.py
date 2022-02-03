@@ -80,11 +80,7 @@ def weight(name: str = 'luxembourg_osm',
     adj = adj.set_value(None, layout=None)
 
     logging.info(f"Computing {k}-paths upper-bound...")
-    k_paths = torch.ones((adj.size(0), 1), dtype=torch.long, device=device)
-
-    for _ in range(k):
-        k_paths += adj @ k_paths
-
+    k_paths = orderings.get_approx_k_neighbors(adj, k)
     max_k_paths = k_paths.max().item()
     
     logging.info(f"Initializing ordering {ordering}")

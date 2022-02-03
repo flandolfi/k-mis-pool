@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
 
 import torch
-from torch import Tensor
 from torch_sparse import SparseTensor
 from torch_scatter import scatter_add
+from torch_geometric.typing import Tensor, OptTensor
 
 
 def get_ranking(value: Tensor, descending: bool = True) -> Tensor:
@@ -12,6 +12,27 @@ def get_ranking(value: Tensor, descending: bool = True) -> Tensor:
     rank[perm] = torch.arange(rank.size(0), dtype=torch.long, device=rank.device)
     
     return rank
+
+
+def get_approx_k_neighbors(adj: SparseTensor, k: int = 1, weight: OptTensor = None) -> Tensor:
+    if weight is None:
+        weight = torch.ones((adj.size(0),), dtype=torch.float, device=adj.device())
+    else:
+        weight = weight.view(-1)
+    
+    if k == 0:
+        return weight
+    
+    row, col, _ = adj.coo()
+    last_k_paths = torch.ones_like(weight)
+    k_sums = weight.clone()
+    scatter_add(k_sums[row], col, out=k_sums)
+    
+    for _ in range(1, k):
+        scatter_add(last_k_paths[row], col, out=last_k_paths)
+        scatter_add(k_sums[row], col, out=k_sums)
+    
+    return k_sums / last_k_paths
 
 
 class Ordering(ABC):
@@ -34,14 +55,7 @@ class DivKSum(Ordering):
         self.k = k
 
     def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
-        row, col, _ = adj.coo()
-        x = x.view(-1)
-        k_sums = x.clone()
-
-        for _ in range(self.k):
-            scatter_add(k_sums[row], col, out=k_sums)
-
-        return x / k_sums
+        return x/get_approx_k_neighbors(adj, self.k, x)
 
 
 class DivKDegree(Ordering):
@@ -49,14 +63,7 @@ class DivKDegree(Ordering):
         self.k = k
 
     def _compute(self, x: Tensor, adj: SparseTensor) -> Tensor:
-        row, col, _ = adj.coo()
-        x = x.view(-1)
-        k_deg = torch.ones_like(x)
-
-        for _ in range(self.k):
-            scatter_add(k_deg[row], col, out=k_deg)
-
-        return x / k_deg
+        return x/get_approx_k_neighbors(adj, self.k)
 
 
 class InvKDegree(DivKDegree):
