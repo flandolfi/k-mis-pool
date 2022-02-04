@@ -25,7 +25,7 @@ def profile(name: str = 'luxembourg_osm',
     results = dict(name=name, group=group, device=device,
                    n=adj.size(0), m=adj.nnz())
 
-    _ignored = torch.ones((1,), device=device)
+    _ignored = torch.tensor([0], dtype=torch.float, device=device)
 
     if device == 'cpu':
         results['tx_time'] = 0
@@ -48,7 +48,7 @@ def profile(name: str = 'luxembourg_osm',
 
                 logging.info(f"Computing inverse {k}-paths ordering...")
                 start = time.time()
-                rank = ordering(torch.ones((adj.size(0),), device=device), adj)
+                rank = ordering(torch.ones((adj.size(0),), dtype=torch.float, device=device), adj)
                 elapsed = time.time() - start
                 run_result['ord_time'] = elapsed
 
