@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CMD="python -m benchmark profile --device 'cuda'"
+CMD="python -m benchmark profile"
 OUT_DIR="./results/stats/"
 mkdir -p $OUT_DIR
 

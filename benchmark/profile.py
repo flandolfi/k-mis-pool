@@ -15,7 +15,7 @@ from benchmark import datasets
 def profile(name: str = 'luxembourg_osm',
             group: str = 'DIMACS10',
             root: str = 'datasets/',
-            device: str = 'cpu',
+            device: str = 'cuda',
             k: Union[list, int] = 1,
             runs: int = 10,
             output_json: str = None,
