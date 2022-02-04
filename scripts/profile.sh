@@ -6,7 +6,7 @@ mkdir -p $OUT_DIR
 
 KS="[1,2,4,8]"
 GROUP="SNAP"
-for DS in com-Friendster com-Orkut com-Youtube com-LiveJournal as-Skitter; do
+for DS in com-Orkut com-LiveJournal com-Youtube as-Skitter; do
     $CMD --name $DS --group $GROUP --k $KS --output_json $OUT_DIR/${DS}.json
 done
 
