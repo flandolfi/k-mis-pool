@@ -16,6 +16,6 @@ for DS in coPapersDBLP coPapersCiteseer; do
 done
 
 KS="'[1,10,100,1000]'"
-for DS in europe asia italy; do
+for DS in europe_osm asia_osm italy_osm; do
     $CMD --name $DS --group $GROUP --k $KS --device --output_json $OUT_DIR/${DS}.json
 done
