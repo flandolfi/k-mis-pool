@@ -1,7 +1,13 @@
+import math
 from typing import List, Union
 
 import torch
+from torchvision.datasets.mnist import MNIST
+from torchvision.transforms import ToTensor
+
 from torch_geometric.nn.pool import avg_pool_x
+from torch_geometric.utils import grid
+from torch_sparse import SparseTensor
 
 from benchmark.datasets import load_graph
 from kmis import KMISPooling
@@ -15,6 +21,7 @@ import seaborn as sns
 
 def plot_reductions(name: str = 'minnesota',
                     group: str = 'Gleich',
+                    root: str = './datasets',
                     k: Union[int, List[int]] = 1,
                     scorer: str = 'constant',
                     ordering: str = 'div-k-sum',
@@ -32,7 +39,7 @@ def plot_reductions(name: str = 'minnesota',
         })
 
     ks = k if isinstance(k, list) else [k]
-    adj, coords = load_graph(name, group, device='cpu', return_coords=True)
+    adj, coords = load_graph(name, group, root=root, device='cpu', return_coords=True)
     pos = coords.numpy()
     p_max, p_min = pos.max(0), pos.min(0)
     margin = 0.01*(p_max - p_min)
@@ -98,4 +105,67 @@ def plot_reductions(name: str = 'minnesota',
         plt.tight_layout()
         plt.show()
 
+
+def plot_mnist(root: str = './datasets/',
+               index: int = 0,
+               k: Union[int, List[int]] = 1,
+               scorer: str = 'lightness',
+               ordering: str = 'div-k-degree',
+               average: bool = True,
+               fig_size: float = 12,
+               node_size: float = 1000,
+               save_fig: str = None):
+    mnist = MNIST(root, download=True)
+    img = ToTensor()(mnist[0][0])[index]
+    img = img.reshape(-1, 1)
+    side = 28
+    (row, col), pos = grid(side, side)
+    pos[:, 1] = pos[:, 1] - side + 1
+    n = side*side
+
+    l_min, l_max = img.min().item(), img.max().item()
+
+    adj = SparseTensor(row=row, col=col, sparse_sizes=(n, n))
+    x = torch.cat([img, pos], dim=-1)
+
+    if scorer == 'lightness':
+        def scorer(x, edge_index, edge_attr):
+            return x, x[:, 0]
+
+    pool = KMISPooling(k=k, scorer=scorer, ordering=ordering, reduce_x='mean')
+    x, adj, _, _, _, mis, _ = pool.forward(x, adj)
+    pos = x[:, 1:]
+
+    if average:
+        img = x[:, :1]
+    else:
+        img = img[mis]
+
+    node_size = (k + 1)*node_size
+    width = 2
+
+    fig, ax = plt.subplots(figsize=(fig_size, fig_size))
+    ax.axis('off')
+    nx.draw_networkx(nx.from_scipy_sparse_matrix(adj.to_scipy()),
+                     vmin=l_min, vmax=l_max,
+                     node_shape='s',
+                     node_color=img.cpu().numpy(),
+                     cmap='viridis',
+                     edge_color='black',
+                     width=width,
+                     node_size=node_size,
+                     pos=dict(enumerate(pos.clone().cpu().numpy())),
+                     with_labels=False,
+                     ax=ax)
+
+    margin = 1.5
+    xlim, ylim = tuple(zip(pos.min(dim=0)[0] - margin, pos.max(dim=0)[0] + margin))
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+    plt.tight_layout()
+
+    if save_fig:
+        plt.savefig(save_fig, format='pdf', bbox_inches='tight')
+    else:
+        plt.show()
 

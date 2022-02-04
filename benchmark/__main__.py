@@ -5,7 +5,7 @@ import fire
 from benchmark.train import train, grid_search
 from benchmark.datasets import info
 from benchmark.weights import weight, generate_dimacs92_files
-from benchmark.plots import plot_reductions
+from benchmark.plots import plot_reductions, plot_mnist
 
 logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
                     level=logging.INFO)
@@ -19,4 +19,5 @@ if __name__ == "__main__":
         'weight': weight,
         'export': generate_dimacs92_files,
         'dist': plot_reductions,
+        'mnist': plot_mnist,
     })
