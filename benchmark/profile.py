@@ -28,9 +28,10 @@ def profile(name: str = 'luxembourg_osm',
     
     # Add randomness for tie-splitting
     perm = torch.randperm(adj.size(0))
-    ptr, col, _ = adj.csr()
-    adj = SparseTensor(rowptr=ptr[perm], col=perm[col],
-                       sparse_sizes=adj.sparse_sizes())
+    row, col, _ = adj.coo()
+    ptr, col, _ = SparseTensor(row=perm[row], col=perm[col],
+                               sparse_sizes=adj.sparse_sizes()).csr()
+    adj = SparseTensor(rowptr=ptr, col=col, sparse_sizes=adj.sparse_sizes())
     _ignored = torch.tensor([0], dtype=torch.float, device=device)
 
     if device == 'cpu':
