@@ -7,6 +7,7 @@ from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
 import torch
+from torch_sparse import SparseTensor
 
 from kmis import reduce, orderings, sample
 from benchmark import datasets
@@ -24,7 +25,11 @@ def profile(name: str = 'luxembourg_osm',
     adj = datasets.load_graph(name, group, root, logging_level=logging_level)
     results = dict(name=name, group=group, device=device,
                    n=adj.size(0), m=adj.nnz())
-
+    
+    # Add randomness for tie-splitting
+    perm = torch.randperm(adj.size(0))
+    ptr, col, _ = adj.csr()
+    adj = SparseTensor(rowptr=ptr[perm], col=perm[col], size=adj.sparse_sizes())
     _ignored = torch.tensor([0], dtype=torch.float, device=device)
 
     if device == 'cpu':
