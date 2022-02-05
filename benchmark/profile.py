@@ -22,14 +22,15 @@ def profile(name: str = 'luxembourg_osm',
             output_json: str = None,
             logging_level: int = logging.INFO):
     ks = k if isinstance(k, list) else [k]
-    ptr, col, _ = datasets.load_graph(name, group, root, logging_level=logging_level).csr()
+    adj = datasets.load_graph(name, group, root, logging_level=logging_level)
     results = dict(name=name, group=group, device=device,
-                   n=ptr.size(0), m=col.size(0))
+                   n=adj.size(0), m=adj.nnz())
     
     # Add randomness for tie-splitting
-    perm = torch.randperm(ptr.size(0))
+    perm = torch.randperm(adj.size(0))
+    ptr, col, _ = adj.csr()
     adj = SparseTensor(rowptr=ptr[perm], col=perm[col],
-                       sparse_sizes=(ptr.size(0), ptr.size(0)))
+                       sparse_sizes=adj.sparse_sizes())
     _ignored = torch.tensor([0], dtype=torch.float, device=device)
 
     if device == 'cpu':
