@@ -44,7 +44,7 @@ def profile(name: str = 'luxembourg_osm',
 
             for _ in tqdm(list(range(runs))):
                 run_result = {}
-                ordering = orderings.InvKDegree(k)
+                ordering = orderings.DivKSum(k)
 
                 logging.info(f"Computing inverse {k}-paths ordering...")
                 start = time.time()
