@@ -111,7 +111,7 @@ def plot_mnist(root: str = './datasets/',
                k: Union[int, List[int]] = 1,
                scorer: str = 'lightness',
                ordering: str = 'div-k-degree',
-               average: bool = True,
+               reduction: str = 'mean',
                fig_size: float = 12,
                node_size: float = 1000,
                save_fig: str = None):
@@ -132,14 +132,9 @@ def plot_mnist(root: str = './datasets/',
         def scorer(x, edge_index, edge_attr):
             return x, x[:, 0]
 
-    pool = KMISPooling(k=k, scorer=scorer, ordering=ordering, reduce_x='mean')
+    pool = KMISPooling(k=k, scorer=scorer, ordering=ordering, reduce_x=reduction)
     x, adj, _, _, _, mis, _ = pool.forward(x, adj)
-    pos = x[:, 1:]
-
-    if average:
-        img = x[:, :1]
-    else:
-        img = img[mis]
+    img, pos = x[:, :1], x[:, 1:]
 
     node_size = (k + 1)*node_size
     width = 2
