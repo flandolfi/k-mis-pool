@@ -123,15 +123,18 @@ def plot_mnist(root: str = './datasets/',
     x = torch.cat([img, pos], dim=-1)
 
     if scorer == 'lightness':
-        def scorer(x, edge_index, edge_attr):
+        def scorer(x, e_i, e_w):
             return x, x[:, 0]
+    elif scorer == 'row-major':
+        def scorer(x, e_i, e_w):
+            return x, (side - x[:, 1] + 1)*side + x[:, 2]
 
     pool = KMISPooling(k=k, scorer=scorer, ordering=ordering, reduce_x=reduction)
     x, adj, _, _, _, mis, _ = pool.forward(x, adj)
     img, pos = x[:, :1], x[:, 1:]
 
-    node_size = (k + 1)*node_size
-    width = 2
+    node_size = (2*k + 1)*node_size
+    width = 3
 
     fig, ax = plt.subplots(figsize=(fig_size, fig_size))
     ax.axis('off')
@@ -147,7 +150,7 @@ def plot_mnist(root: str = './datasets/',
                      with_labels=False,
                      ax=ax)
 
-    margin = 1.5
+    margin = 2
     xlim, ylim = tuple(zip(pos.min(dim=0)[0] - margin, pos.max(dim=0)[0] + margin))
     ax.set_xlim(xlim)
     ax.set_ylim(ylim)
