@@ -24,8 +24,8 @@ def plot_reductions(name: str = 'minnesota',
                     root: str = './datasets',
                     k: Union[int, List[int]] = 1,
                     scorer: str = 'constant',
-                    ordering: str = 'div-k-sum',
-                    aggregate: bool = False,
+                    ordering: str = 'div-k-degree',
+                    reduction: str = 'mean',
                     edge_width: float = 1,
                     fig_size: float = 2,
                     aspect: float = 1,
@@ -68,16 +68,10 @@ def plot_reductions(name: str = 'minnesota',
     axes[0].set_ylim(y_lim)
 
     for k, ax in zip(ks, axes[1:-1]):
-        pool = KMISPooling(k=k, scorer=scorer, ordering=ordering)
-        x = torch.ones((adj.size(0), 1))
-        _, adj_redux, _, _, cluster, mis, _ = pool.forward(x, adj)
+        pool = KMISPooling(k=k, scorer=scorer, ordering=ordering, reduce_x=reduction)
+        pos_redux, adj_redux, _, _, cluster, mis, _ = pool.forward(coords, adj)
         H = nx.from_scipy_sparse_matrix(adj_redux.to_scipy())
-
-        if aggregate:
-            pos_redux, _ = avg_pool_x(cluster, coords, batch=torch.zeros_like(cluster).long())
-            pos_redux = dict(enumerate(pos_redux.numpy()))
-        else:
-            pos_redux = dict(enumerate(coords[mis].numpy()))
+        pos_redux = dict(enumerate(pos_redux.numpy()))
 
         ids = torch.nonzero(mis).view(-1)
         row, col, _ = adj_redux.coo()
