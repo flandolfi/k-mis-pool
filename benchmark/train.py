@@ -106,7 +106,8 @@ def grid_search(model: str = 'Baseline',
                 gpu_per_trial: float = 0,
                 verbose: int = 1,
                 refit: Union[bool, int] = 10,
-                seed: int = 42):
+                seed: int = 42,
+                **run_kwargs):
     logging_level = logging.INFO if verbose > 0 else logging.WARNING
     logging.basicConfig(format='%(levelname)s: %(message)s',
                         level=logging_level)
@@ -159,7 +160,8 @@ def grid_search(model: str = 'Baseline',
                         progress_reporter=reporter,
                         raise_on_failed_trial=False,
                         fail_fast=False,
-                        name=exp_name)
+                        name=exp_name,
+                        **run_kwargs)
 
     logging.info(f"Best config:\t{analysis.best_config}\n")
     
