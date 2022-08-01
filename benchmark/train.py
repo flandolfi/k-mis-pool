@@ -5,7 +5,7 @@ import math
 import os
 
 from torch_geometric.data.lightning_datamodule import LightningDataset
-from torch_geometric.datasets import TUDataset, MalNetTiny
+from torch_geometric.datasets import TUDataset
 from torch_geometric.transforms import Constant, Compose, ToUndirected
 from torch_geometric import seed_everything
 
@@ -22,6 +22,7 @@ from sklearn.model_selection import train_test_split
 import pandas as pd
 
 from benchmark import models
+from benchmark.datasets import MalNetTiny
 
 warnings.filterwarnings("ignore", category=Warning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -36,27 +37,31 @@ def get_datasets(dataset: str = 'DD',
     
     with FileLock(os.path.expanduser('~/.data.lock')):
         if dataset in {'mal-net', 'MalNet', 'MalNetTiny'}:
-            dataset = MalNetTiny(root=os.path.join(root, 'MalNetTiny'),
-                                 transform=Compose([Constant(), ToUndirected()]))
+            root = os.path.join(root, 'MalNetTiny')
+            transform = Compose([Constant(), ToUndirected()])
+
+            train_dataset = MalNetTiny(root=root, split="train", transform=transform)
+            valid_dataset = MalNetTiny(root=root, split="val", transform=transform)
+            test_dataset = MalNetTiny(root=root, split="test", transform=transform)
         else:
             dataset = TUDataset(root=root, name=dataset)
             
             if dataset.num_node_features == 0:
                 dataset.transform = Constant()
     
-    idx = list(range(len(dataset)))
-    y = dataset.data.y.numpy()
-    
-    train_idx, test_idx = train_test_split(idx, test_size=0.2,
-                                           random_state=seed,
-                                           stratify=y)
-    train_idx, valid_idx = train_test_split(train_idx, test_size=0.125,
-                                            random_state=seed,
-                                            stratify=y[train_idx])
-    
-    train_dataset = dataset[train_idx]
-    valid_dataset = dataset[valid_idx]
-    test_dataset = dataset[test_idx]
+            idx = list(range(len(dataset)))
+            y = dataset.data.y.numpy()
+
+            train_idx, test_idx = train_test_split(idx, test_size=0.2,
+                                                   random_state=seed,
+                                                   stratify=y)
+            train_idx, valid_idx = train_test_split(train_idx, test_size=0.125,
+                                                    random_state=seed,
+                                                    stratify=y[train_idx])
+
+            train_dataset = dataset[train_idx]
+            valid_dataset = dataset[valid_idx]
+            test_dataset = dataset[test_idx]
     
     return LightningDataset(train_dataset, valid_dataset, test_dataset,
                             batch_size=batch_size, num_workers=num_workers)
