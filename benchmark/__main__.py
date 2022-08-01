@@ -6,7 +6,7 @@ from benchmark.train import train, grid_search
 from benchmark.datasets import info
 from benchmark.weights import weight, generate_dimacs92_files
 from benchmark.plots import plot_reductions, plot_mnist
-from benchmark.profile import profile
+from benchmark.profiling import profile
 
 logging.basicConfig(format='[%(asctime)s] %(levelname)s: %(message)s',
                     level=logging.INFO)
