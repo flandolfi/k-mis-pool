@@ -22,3 +22,5 @@ dependencies:
   - tqdm
   - h5py
   - pip
+  - pip:
+    - git+https://github.com/pyg-team/pytorch_geometric.git
