@@ -7,7 +7,6 @@ from torch_geometric.nn.glob import global_add_pool, global_max_pool
 from torch_geometric.nn.pool import TopKPooling, SAGPooling, ASAPooling, PANPooling
 from torch_geometric.nn.models import MLP
 from torch_geometric.data import InMemoryDataset, Data
-from torch_geometric.utils import remove_isolated_nodes
 
 from pytorch_lightning import LightningModule
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
@@ -201,8 +200,6 @@ class GraclusPool(Baseline):
     def __init__(self, dataset: InMemoryDataset, **kwargs):
         def _graclus_wrap(in_channels=None):
             def _graclus(x, e_i, e_w, b):
-                e_i, e_w, mask = remove_isolated_nodes(edge_index=e_i, edge_attr=e_w, num_nodes=x.size())
-                x, b = x[mask], b[mask]
                 cluster = pool.graclus(edge_index=e_i, weight=e_w, num_nodes=x.size(0))
                 data = pool.avg_pool(cluster, Data(x=x, edge_index=e_i, edge_attr=e_w, batch=b))
                 return data.x, data.edge_index, data.edge_weight, data.batch
