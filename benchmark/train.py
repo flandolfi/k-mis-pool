@@ -12,8 +12,9 @@ from torch_geometric import seed_everything
 import pytorch_lightning as pl
 
 from ray import tune
-from ray.tune import CLIReporter
+from ray.tune import CLIReporter, run_experiments
 from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
+from ray.tune.experiment import Experiment
 
 from filelock import FileLock
 
@@ -130,7 +131,7 @@ def grid_search(model: str = 'Baseline',
                 
     root = os.path.realpath(root)
     reporter = CLIReporter(
-        metric_columns=["loss", "accuracy", "training_iteration"])
+        metric_columns=["loss", "accuracy", "training_iteration", "test_acc"])
     
     def _train_partial(config):
         train(model, dataset, root, config,
@@ -169,18 +170,39 @@ def grid_search(model: str = 'Baseline',
         logging.info(f"Checkpoint at:\t{analysis.best_checkpoint}\n")
         return
 
-    results = []
     best_config = analysis.best_config
 
-    for test_seed in range(int(refit)):
+    def _test_partial(config):
         metric_list = train(model=model, dataset=dataset, root=root,
                             config=dict(best_config), num_workers=cpu_per_trial,
-                            gpus=math.ceil(gpu_per_trial), test=True, seed=test_seed)
-        results.append(metric_list[0])
+                            progress_bar_refresh_rate=0, gpus=math.ceil(gpu_per_trial),
+                            test=True, seed=config['seed'], callbacks=[
+                                TuneReportCheckpointCallback({
+                                    "loss": "val_loss",
+                                    "accuracy": "val_acc"
+                                }, on="validation_end")
+                            ])
+        tune.report(**metric_list[0])
+
+    logging.info("Starting tests...")
+    results = tune.run(_test_partial,
+                       resources_per_trial={
+                           'cpu': cpu_per_trial,
+                           'gpu': gpu_per_trial,
+                       },
+                       local_dir=local_dir,
+                       config={'seed': tune.grid_search(list(range(int(refit))))},
+                       num_samples=1,
+                       verbose=verbose,
+                       progress_reporter=reporter,
+                       raise_on_failed_trial=False,
+                       fail_fast=False,
+                       name=exp_name + '_test',
+                       **run_kwargs)
 
     logging.info(f"Model assessment results:\n\n{results}")
-    
-    df_results = pd.DataFrame.from_records(results)
+
+    df_results = results.results_df.set_index('config.seed')[['test_acc']]
     df_config = pd.DataFrame.from_records([best_config])
     results_path = os.path.join(local_dir, exp_name, 'model_assessment.json')
     config_path = os.path.join(local_dir, exp_name, 'best_config.json')
