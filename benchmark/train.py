@@ -12,9 +12,8 @@ from torch_geometric import seed_everything
 import pytorch_lightning as pl
 
 from ray import tune
-from ray.tune import CLIReporter, run_experiments
+from ray.tune import CLIReporter
 from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
-from ray.tune.experiment import Experiment
 
 from filelock import FileLock
 
