@@ -1,7 +1,7 @@
 #!/bin/bash
 
 RESULTS_DIR="./results/classification/"
-CONFIG_ALL="--root datasets --local_dir $RESULTS_DIR --cpu_per_trial 4 --gpu_per_trial 0.5"
+CONFIG_ALL="--root datasets --local_dir $RESULTS_DIR --cpu_per_trial 4 --gpu_per_trial 0.2"
 GS_CMD="python -m benchmark grid_search $CONFIG_ALL"
 
 clean_up () {
@@ -11,7 +11,7 @@ clean_up () {
   rm -r $PREFIX
 }
 
-for DATASET in "DD" "REDDIT-BINARY" "REDDIT-MULTI-5K" "REDDIT-MULTI-12K" "github_stargazers"; do
+for DATASET in "DD" "REDDIT-BINARY" "REDDIT-MULTI-5K" "REDDIT-MULTI-12K" "github_stargazers" "MalNetTiny"; do
   for MODEL in Baseline GraclusPool; do
     $GS_CMD --dataset $DATASET --model $MODEL
 
@@ -24,7 +24,7 @@ for DATASET in "DD" "REDDIT-BINARY" "REDDIT-MULTI-5K" "REDDIT-MULTI-12K" "github
     clean_up $MODEL $DATASET
   done
 
-  for MODEL in KMISPool KMISPoolRandom KMISPoolConst KMISPoolNorm; do
+  for MODEL in KMISPool KMISSumPool KMISMeanPool KMISMaxPool KMISPoolRandom KMISPoolConst KMISPoolNorm; do
     $GS_CMD --dataset $DATASET --model $MODEL --opt_grid "{'k':[1,2,3]}"
 
     clean_up $MODEL $DATASET
