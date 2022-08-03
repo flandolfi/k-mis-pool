@@ -244,6 +244,21 @@ class KMISPool(Baseline):
         super(KMISPool, self).__init__(dataset=dataset, **kwargs)
 
 
+class KMISSumPool(KMISPool):
+    def __init__(self, dataset: InMemoryDataset, k: int, **kwargs):
+        super(KMISSumPool, self).__init__(dataset=dataset, k=k, reduce_x='sum', **kwargs)
+
+
+class KMISMeanPool(KMISPool):
+    def __init__(self, dataset: InMemoryDataset, k: int, **kwargs):
+        super(KMISMeanPool, self).__init__(dataset=dataset, k=k, reduce_x='mean', **kwargs)
+
+
+class KMISMaxPool(KMISPool):
+    def __init__(self, dataset: InMemoryDataset, k: int, **kwargs):
+        super(KMISMaxPool, self).__init__(dataset=dataset, k=k, reduce_x='max', **kwargs)
+
+
 class KMISPoolRandom(KMISPool):
     def __init__(self, dataset: InMemoryDataset, k: int, **kwargs):
         super(KMISPoolRandom, self).__init__(dataset=dataset, k=k, scorer='random',
