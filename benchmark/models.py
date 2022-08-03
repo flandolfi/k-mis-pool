@@ -201,7 +201,7 @@ class GraclusPool(Baseline):
     def __init__(self, dataset: InMemoryDataset, **kwargs):
         def _graclus_wrap(in_channels=None):
             def _graclus(x, e_i, e_w, b):
-                e_i, e_w, mask = remove_isolated_nodes(edge_index=e_i, edge_attr=e_w, num_nodes=x.size())
+                e_i, e_w, mask = remove_isolated_nodes(edge_index=e_i, edge_attr=e_w, num_nodes=x.size(0))
                 x, b = x[mask], b[mask]
                 cluster = pool.graclus(edge_index=e_i, weight=e_w, num_nodes=x.size(0))
                 data = pool.avg_pool(cluster, Data(x=x, edge_index=e_i, edge_attr=e_w, batch=b))
