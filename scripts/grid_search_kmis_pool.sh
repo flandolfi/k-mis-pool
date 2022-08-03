@@ -11,7 +11,7 @@ clean_up () {
   rm -r $PREFIX
 }
 
-for MODEL in KMISPoolLinear KMISPoolRandom KMISPoolNorm KMISPoolConst; do
+for MODEL in KMISPool KMISPoolRandom KMISPoolNorm KMISPoolConst; do
   for DATASET in "DD" "REDDIT-BINARY" "REDDIT-MULTI-5K" "REDDIT-MULTI-12K" "github_stargazers" "MalNetTiny"; do
     $GS_CMD --dataset $DATASET --model $MODEL --opt_grid "{'k':[1,2,3],'reduce_x':['mean']}"
 
