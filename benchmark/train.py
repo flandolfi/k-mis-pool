@@ -204,7 +204,9 @@ def grid_search(model: str = 'Baseline',
     df_results.to_json(results_path)
     df_config.to_json(config_path)
 
-    logging.info(f"Model assessment results:\n\n{results.results_df}")
+    logging.info(f"Model assessment results: "
+                 f"{100*df_results.values.mean():.3f} ± "
+                 f"{100*df_results.values.std():.3f}")
     logging.info(f"Results stored in\n"
                  f" - {results_path}\n"
                  f" - {config_path}")
