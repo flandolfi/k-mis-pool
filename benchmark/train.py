@@ -163,13 +163,11 @@ def grid_search(model: str = 'Baseline',
                         name=exp_name,
                         **run_kwargs)
 
-    logging.info(f"Best config:\t{analysis.best_config}\n")
+    best_config = analysis.get_best_config(scope="all")
+    logging.info(f"Best config:\t{best_config}\n")
     
     if not refit:
-        logging.info(f"Checkpoint at:\t{analysis.best_checkpoint}\n")
         return
-
-    best_config = analysis.best_config
 
     def _test_partial(config):
         metric_list = train(model=model, dataset=dataset, root=root,
@@ -199,14 +197,16 @@ def grid_search(model: str = 'Baseline',
                        name=exp_name + '_test',
                        **run_kwargs)
 
-    logging.info(f"Model assessment results:\n\n{results}")
-
     df_results = results.results_df.set_index('config.seed')[['test_acc']]
     df_config = pd.DataFrame.from_records([best_config])
     results_path = os.path.join(local_dir, exp_name, 'model_assessment.json')
     config_path = os.path.join(local_dir, exp_name, 'best_config.json')
     df_results.to_json(results_path)
     df_config.to_json(config_path)
+
+    logging.info(f"Model assessment results: "
+                 f"{100*df_results.values.mean():.3f} ± "
+                 f"{100*df_results.values.std():.3f}")
     logging.info(f"Results stored in\n"
                  f" - {results_path}\n"
                  f" - {config_path}")
