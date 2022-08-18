@@ -1,7 +1,8 @@
 #!/bin/bash
 
+# Change the following options depending on the machine
 RESULTS_DIR="./results/classification/"
-CONFIG_ALL="--root datasets --local_dir $RESULTS_DIR --cpu_per_trial 4 --gpu_per_trial 0.2"
+CONFIG_ALL="--root datasets --local_dir $RESULTS_DIR --cpu_per_trial 4 --gpu_per_trial 0.2"  # 40GB/5 = 8GB
 GS_CMD="python -m benchmark grid_search $CONFIG_ALL"
 
 clean_up () {
