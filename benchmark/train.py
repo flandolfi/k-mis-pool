@@ -29,7 +29,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 def get_datasets(dataset: str = 'DD',
-                 root: str = './data/',
+                 root: str = './datasets/',
                  batch_size: int = -1,
                  num_workers: int = 0,
                  seed: int = 42):
@@ -69,7 +69,7 @@ def get_datasets(dataset: str = 'DD',
 
 def train(model: str = 'Baseline',
           dataset: str = 'DD',
-          root: str = './data/',
+          root: str = './datasets/',
           config: Optional[dict] = None,
           num_workers: int = 0,
           test: bool = False,
@@ -99,7 +99,7 @@ def train(model: str = 'Baseline',
 
 def grid_search(model: str = 'Baseline',
                 dataset: str = 'DD',
-                root: str = './data/',
+                root: str = './datasets/',
                 opt_grid: Optional[dict] = None,
                 local_dir: str = "./results/",
                 cpu_per_trial: int = 1,
