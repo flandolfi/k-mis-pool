@@ -102,7 +102,7 @@ def plot_reductions(name: str = 'minnesota',
 
 def plot_mnist(root: str = './datasets/',
                index: int = 0,
-               k: Union[int, List[int]] = 1,
+               k: int = 1,
                scorer: str = 'lightness',
                ordering: str = 'div-k-degree',
                reduction: str = 'mean',
