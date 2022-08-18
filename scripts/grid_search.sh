@@ -9,9 +9,10 @@ clean_up () {
   mv $PREFIX/model_assessment.json ${PREFIX}_results.json
   mv $PREFIX/best_config.json ${PREFIX}_config.json
   rm -r $PREFIX
+  rm -r ${PREFIX}_test
 }
 
-for DATASET in "DD" "REDDIT-BINARY" "REDDIT-MULTI-5K" "REDDIT-MULTI-12K" "github_stargazers" "MalNetTiny"; do
+for DATASET in "DD" "REDDIT-BINARY" "REDDIT-MULTI-5K" "REDDIT-MULTI-12K" "github_stargazers"; do
   for MODEL in Baseline GraclusPool; do
     $GS_CMD --dataset $DATASET --model $MODEL
 
@@ -24,7 +25,7 @@ for DATASET in "DD" "REDDIT-BINARY" "REDDIT-MULTI-5K" "REDDIT-MULTI-12K" "github
     clean_up $MODEL $DATASET
   done
 
-  for MODEL in KMISPool KMISSumPool KMISMeanPool KMISMaxPool KMISPoolRandom KMISPoolConst KMISPoolNorm; do
+  for MODEL in KMISPool KMISMeanPool KMISMaxPool KMISPoolRandom; do
     $GS_CMD --dataset $DATASET --model $MODEL --opt_grid "{'k':[1,2,3]}"
 
     clean_up $MODEL $DATASET
