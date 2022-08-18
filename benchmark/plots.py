@@ -125,7 +125,7 @@ def plot_mnist(root: str = './datasets/',
     if scorer == 'lightness':
         def scorer(x, e_i, e_w):
             return x, x[:, 0]
-    elif scorer == 'row-major':
+    elif scorer == 'lexicographic':
         def scorer(x, e_i, e_w):
             return x, (side - x[:, 1] + 1)*side + x[:, 2]
 
