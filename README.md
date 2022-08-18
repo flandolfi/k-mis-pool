@@ -1,8 +1,7 @@
 Generalizing Downsampling from Regular Data to Graphs
-=====================================================
+-----------------------------------------------------
 
-Installation
-------------
+### Installation ###
 
 You can install the `kmis` environment and the required packages with
 Anaconda/Miniconda, by running the following commands in the project
@@ -14,8 +13,7 @@ conda env create -f conda/environment_cu113.yml
 conda activate kmis
 ```
 
-Available commands
-------------------
+### Available commands ###
 
 We provide the following commands, all of which can be executed by running
 ```shell
@@ -33,8 +31,7 @@ in the project directory:
 | `profile`     | `profile --k 1 --name europe_osm --group DIMACS10 --device cuda`  | Compute running time and reduction statistics.                                                                |
 | `export`      | `export --name luxembourg_osm --group DIMACS10 --max_k 8`         | Export all the power graphs (up to `max_k`) in DIMACS92 format of a given graph.                              |
 
-Reproducibility
----------------
+### Reproducibility ###
 
 The results showed in the paper can be reproduced as following:
 
