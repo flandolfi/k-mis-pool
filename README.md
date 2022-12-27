@@ -50,3 +50,14 @@ The results showed in the paper can be reproduced as following:
    [`stablesolver`](https://github.com/fontanf/stablesolver) (with 
    `-a greedy_gwmin` and `-a greedy_gwmin2` options), on power graphs
    previously exported using the `export` command (see above).
+   
+### Reference ###
+```bibtex
+@misc{bacciu_generalizing_2022,
+  author = {Bacciu, Davide and Conte, Alessio and Landolfi, Francesco},
+  title = {Generalizing Downsampling from Regular Data to Graphs},
+  url = {https://arxiv.org/abs/2208.03523},
+  publisher = {arXiv},
+  year = {2022}
+}
+```
